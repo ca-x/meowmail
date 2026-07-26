@@ -68,6 +68,28 @@ data/
 
 ## Docker
 
+首个正式版本会同时发布 `linux/amd64` 与 `linux/arm64` 镜像：
+
+```bash
+docker pull ghcr.io/ca-x/meowmail:0.1.0
+docker pull czyt/meowmail:0.1.0
+```
+
+正式 tag 会生成 `v0.1.0`、`0.1.0`、`0.1`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例启动；Docker Hub 镜像的内容与标签相同：
+
+```bash
+docker volume create meowmail-data
+docker run --detach \
+  --name meowmail \
+  --restart unless-stopped \
+  --publish 8080:8080 \
+  --env MEOWMAIL_PIN='请换成私密 PIN 或口令' \
+  --volume meowmail-data:/data \
+  ghcr.io/ca-x/meowmail:0.1.0
+```
+
+本地构建镜像：
+
 ```bash
 docker build --tag meowmail:local .
 docker volume create meowmail-data
@@ -190,7 +212,11 @@ cargo test --locked
 cargo build --release --locked
 ```
 
-推送 `v*` tag 后，`.github/workflows/release.yml` 会构建 Linux x86_64/aarch64、Windows x86_64、macOS x86_64/aarch64 压缩包，生成 `SHA256SUMS` 并发布到 GitHub Release。
+推送 `v*` tag 后：
+
+- `.github/workflows/release.yml` 构建 Linux x86_64/aarch64、Windows x86_64、macOS x86_64/aarch64 压缩包，生成 `SHA256SUMS` 并发布到 GitHub Release。每个压缩包包含可执行文件、README、许可证、环境变量示例和 README 使用的界面截图。
+- `.github/workflows/docker.yml` 在原生 amd64/arm64 runner 上构建镜像，附带 provenance 与 SBOM，并同时发布到 `ghcr.io/ca-x/meowmail` 与 `czyt/meowmail`。发布前必须在仓库或组织中配置 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，缺少任一密钥时 workflow 会立即失败，避免出现只发布一个镜像仓库的假成功。
+- Docker 工作流支持手动补发已有版本；运行 workflow 时传入与 `Cargo.toml` 一致的 `release_tag`（例如 `v0.1.0`），它会从该 tag 对应的提交重新构建并发布版本与提交标签。
 
 ## License
 

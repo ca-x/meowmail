@@ -1,4 +1,4 @@
-import { Archive, Check, FileText, Inbox, MailOpen, Paperclip, Star } from "lucide-react"
+import { Inbox, Paperclip, Star } from "lucide-react"
 
 import type { MessageSummary } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
@@ -24,15 +24,22 @@ export function MessageList({ messages, selectedId, loading, onSelect, onToggleS
     )
   }
   return (
-    <div className="message-list" role="listbox" aria-label={t("inbox")}>
-      {messages.map((message) => (
+    <div className="message-list" role="list" aria-label={t("inbox")}>
+      {messages.map((message, index) => (
         <article
           key={message.id}
           className={`message-row ${message.id === selectedId ? "selected" : ""} ${message.isRead ? "read" : "unread"}`}
-          role="option"
-          aria-selected={message.id === selectedId}
-          tabIndex={message.id === selectedId ? 0 : -1}
+          role="listitem"
+          aria-current={message.id === selectedId || undefined}
+          tabIndex={message.id === selectedId || (!selectedId && index === 0) ? 0 : -1}
           onClick={() => onSelect(message)}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
+              onSelect(message)
+            }
+          }}
         >
           <span className="unread-marker" aria-hidden="true" />
           <Avatar name={message.senderName || message.senderEmail} />
@@ -42,7 +49,7 @@ export function MessageList({ messages, selectedId, loading, onSelect, onToggleS
               <time dateTime={new Date(message.receivedAt * 1000).toISOString()}>{relativeTime(message.receivedAt, locale)}</time>
             </div>
             <div className="message-subject-line">
-              <span>{message.subject || "(No subject)"}</span>
+              <span>{message.subject || t("noSubject")}</span>
               {message.attachmentCount > 0 && <Paperclip size={13} aria-label={t("attachments")} />}
             </div>
             <p>{message.preview}</p>

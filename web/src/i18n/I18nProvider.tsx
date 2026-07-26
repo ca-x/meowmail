@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { readStoredValue, writeStoredValue } from "../app/storage"
 import { messages, type Locale, type MessageKey } from "./messages"
@@ -19,11 +19,17 @@ function initialLocale(): Locale {
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale)
+
+  useEffect(() => {
+    document.documentElement.lang = locale
+    document.title = messages[locale].brandName
+    document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", messages[locale].metaDescription)
+  }, [locale])
+
   const value = useMemo<I18nValue>(() => ({
     locale,
     setLocale(next) {
       writeStoredValue("meowmail-locale", next)
-      document.documentElement.lang = next
       setLocaleState(next)
     },
     t(key, values) {

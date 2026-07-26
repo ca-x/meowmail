@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { CheckCircle2, ChevronDown, MailPlus, Server, ShieldCheck, Trash2, X } from "lucide-react"
 
 import { api } from "../../app/api"
+import { useDialogBehavior } from "../../app/useDialogBehavior"
 import type { AccountInput, ConnectionSecurity, MailAccount, ProxyKind } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 
@@ -49,6 +50,9 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
   const [input, setInput] = useState<AccountInput>(() => account ? fromAccount(account) : emptyInput())
   const [busy, setBusy] = useState<"save" | "test" | "delete" | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLElement>(null)
+
+  useDialogBehavior(dialogRef, onClose)
 
   useEffect(() => setInput(account ? fromAccount(account) : emptyInput()), [account])
 
@@ -98,7 +102,7 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
   }
 
   async function removeAccount() {
-    if (!account || !confirm(`${t("delete")} ${account.displayName}?`)) return
+    if (!account || !confirm(t("deleteAccountConfirm", { account: account.displayName }))) return
     setBusy("delete")
     try {
       await api.deleteAccount(account.id)
@@ -111,7 +115,7 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="modal-card account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title">
+      <section ref={dialogRef} className="modal-card account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" tabIndex={-1}>
         <header className="modal-header">
           <div className="modal-title-group">
             <span className="modal-icon"><MailPlus size={20} /></span>
@@ -129,10 +133,31 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
 
           <div className="form-section">
             <div className="form-grid two-columns">
-              <Field label={t("displayName")} value={input.displayName} onChange={(displayName) => setInput({ ...input, displayName })} required />
-              <Field label={t("email")} value={input.email} onChange={(email) => setInput({ ...input, email, username: input.username || email })} type="email" required />
-              <Field label={t("username")} value={input.username} onChange={(username) => setInput({ ...input, username })} required />
-              <Field label={t("password")} hint={account ? t("passwordKeep") : undefined} value={input.password || ""} onChange={(password) => setInput({ ...input, password })} type="password" required={!account} />
+              <Field label={t("displayName")} placeholder={t("displayNamePlaceholder")} value={input.displayName} onChange={(displayName) => setInput({ ...input, displayName })} required initialFocus />
+              <Field
+                label={t("email")}
+                placeholder={t("emailPlaceholder")}
+                value={input.email}
+                onChange={(email) => setInput((current) => ({
+                  ...current,
+                  email,
+                  username: !current.username || current.username === current.email ? email : current.username,
+                }))}
+                type="email"
+                autoComplete="email"
+                required
+              />
+              <Field label={t("username")} placeholder={t("usernamePlaceholder")} value={input.username} onChange={(username) => setInput({ ...input, username })} autoComplete="username" required />
+              <Field
+                label={t("password")}
+                hint={account ? t("passwordKeep") : undefined}
+                placeholder={account ? t("passwordKeep") : t("passwordPlaceholder")}
+                value={input.password || ""}
+                onChange={(password) => setInput({ ...input, password })}
+                type="password"
+                autoComplete="new-password"
+                required={!account}
+              />
             </div>
           </div>
 
@@ -157,6 +182,7 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
                   key={kind}
                   type="button"
                   className={input.proxy.kind === kind ? "active" : ""}
+                  aria-pressed={input.proxy.kind === kind}
                   onClick={() => setInput({ ...input, proxy: { ...input.proxy, kind } })}
                 >
                   {t(kind)}
@@ -165,10 +191,10 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
             </div>
             {input.proxy.kind !== "direct" && (
               <div className="form-grid two-columns proxy-fields">
-                <Field label={t("host")} value={input.proxy.host || ""} onChange={(host) => setInput({ ...input, proxy: { ...input.proxy, host } })} required />
-                <Field label={t("port")} value={String(input.proxy.port || "")} onChange={(port) => setInput({ ...input, proxy: { ...input.proxy, port: Number(port) || undefined } })} type="number" required />
-                <Field label={t("proxyUsername")} value={input.proxy.username || ""} onChange={(username) => setInput({ ...input, proxy: { ...input.proxy, username } })} />
-                <Field label={t("proxyPassword")} value={input.proxy.password || ""} onChange={(password) => setInput({ ...input, proxy: { ...input.proxy, password } })} type="password" />
+                <Field label={t("host")} placeholder={t("proxyHostPlaceholder")} value={input.proxy.host || ""} onChange={(host) => setInput({ ...input, proxy: { ...input.proxy, host } })} required />
+                <Field label={t("port")} placeholder={t("proxyPortPlaceholder")} value={String(input.proxy.port || "")} onChange={(port) => setInput({ ...input, proxy: { ...input.proxy, port: Number(port) || undefined } })} type="number" required />
+                <Field label={t("proxyUsername")} placeholder={t("proxyUsernamePlaceholder")} value={input.proxy.username || ""} onChange={(username) => setInput({ ...input, proxy: { ...input.proxy, username } })} autoComplete="off" />
+                <Field label={t("proxyPassword")} placeholder={t("proxyPasswordPlaceholder")} value={input.proxy.password || ""} onChange={(password) => setInput({ ...input, proxy: { ...input.proxy, password } })} type="password" autoComplete="new-password" />
               </div>
             )}
           </div>
@@ -206,18 +232,30 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
   )
 }
 
-function Field({ label, hint, value, onChange, type = "text", required = false }: {
+function Field({ label, hint, placeholder, value, onChange, type = "text", autoComplete, required = false, initialFocus = false }: {
   label: string
   hint?: string
+  placeholder?: string
   value: string
   onChange: (value: string) => void
   type?: string
+  autoComplete?: string
   required?: boolean
+  initialFocus?: boolean
 }) {
   return (
     <label className="form-field">
       <span>{label}</span>
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} required={required} />
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        inputMode={type === "number" ? "numeric" : undefined}
+        data-dialog-initial-focus={initialFocus || undefined}
+        onChange={(event) => onChange(event.target.value)}
+        required={required}
+      />
       {hint && <small>{hint}</small>}
     </label>
   )
@@ -232,9 +270,9 @@ function ServerFields({ title, value, onChange }: {
   return (
     <div className="server-card">
       <div className="section-heading"><Server size={17} /><h3>{title}</h3></div>
-      <Field label={t("host")} value={value.host} onChange={(host) => onChange({ ...value, host })} required />
+      <Field label={t("host")} placeholder={t("hostPlaceholder")} value={value.host} onChange={(host) => onChange({ ...value, host })} required />
       <div className="server-row">
-        <Field label={t("port")} value={String(value.port)} onChange={(port) => onChange({ ...value, port: Number(port) || 0 })} type="number" required />
+        <Field label={t("port")} placeholder={t("portPlaceholder")} value={String(value.port)} onChange={(port) => onChange({ ...value, port: Number(port) || 0 })} type="number" required />
         <label className="form-field">
           <span>{t("security")}</span>
           <div className="select-shell">

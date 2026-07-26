@@ -1,20 +1,23 @@
-import { useMemo, useState } from "react"
-import { ArrowLeft, CornerUpLeft, Ellipsis, Forward, MailOpen, MoreHorizontal, ShieldCheck, Star } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { ArrowLeft, CornerUpLeft, Forward, MailOpen, ShieldCheck, Star } from "lucide-react"
 
 import type { MessageDetail as Detail } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 
-export function MessageDetail({ message, loading, onBack, onToggleStar, onToggleRead, onReply }: {
+export function MessageDetail({ message, loading, onBack, onToggleStar, onToggleRead, onReply, onForward }: {
   message: Detail | null
   loading: boolean
   onBack: () => void
   onToggleStar: () => void
   onToggleRead: () => void
   onReply: () => void
+  onForward: () => void
 }) {
   const { locale, t } = useI18n()
   const [view, setView] = useState<"html" | "text">("html")
   const srcDoc = useMemo(() => message?.bodyHtml ? emailDocument(message.bodyHtml) : "", [message?.bodyHtml])
+
+  useEffect(() => setView("html"), [message?.id])
 
   if (loading) return <div className="detail-loading"><span className="spinner" /></div>
   if (!message) {
@@ -33,16 +36,15 @@ export function MessageDetail({ message, loading, onBack, onToggleStar, onToggle
         <div className="detail-toolbar-spacer" />
         <button className="icon-button" type="button" onClick={onToggleRead} aria-label={message.isRead ? t("markUnread") : t("markRead")}><MailOpen size={17} /></button>
         <button className={`icon-button ${message.isStarred ? "star-active" : ""}`} type="button" onClick={onToggleStar} aria-label={message.isStarred ? t("unstar") : t("star")}><Star size={17} fill={message.isStarred ? "currentColor" : "none"} /></button>
-        <button className="icon-button" type="button" aria-label="More"><MoreHorizontal size={18} /></button>
       </header>
       <div className="detail-scroll">
         <div className="detail-content">
           <header className="message-heading">
-            <h1>{message.subject || "(No subject)"}</h1>
+            <h1>{message.subject || t("noSubject")}</h1>
             <div className="sender-block">
               <span className="sender-avatar large">{[...(message.senderName || message.senderEmail)][0]?.toUpperCase()}</span>
               <div className="sender-meta">
-                <div><strong>{message.senderName || message.senderEmail}</strong><span>&lt;{message.senderEmail}&gt;</span></div>
+                <div><strong>{message.senderName || message.senderEmail}</strong>{message.senderName && <span>&lt;{message.senderEmail}&gt;</span>}</div>
                 <p>{t("to")}: {message.recipients.join(", ")}</p>
               </div>
               <time>{new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.receivedAt * 1000))}</time>
@@ -51,20 +53,20 @@ export function MessageDetail({ message, loading, onBack, onToggleStar, onToggle
           {message.bodyHtml && (
             <div className="mail-view-switch">
               <div className="segmented-control compact">
-                <button type="button" className={view === "html" ? "active" : ""} onClick={() => setView("html")}>{t("showHtml")}</button>
-                <button type="button" className={view === "text" ? "active" : ""} onClick={() => setView("text")}>{t("showText")}</button>
+                <button type="button" className={view === "html" ? "active" : ""} aria-pressed={view === "html"} onClick={() => setView("html")}>{t("showHtml")}</button>
+                <button type="button" className={view === "text" ? "active" : ""} aria-pressed={view === "text"} onClick={() => setView("text")}>{t("showText")}</button>
               </div>
               <span><ShieldCheck size={14} />{t("remoteImagesBlocked")}</span>
             </div>
           )}
           <div className="message-body">
             {view === "html" && message.bodyHtml
-              ? <iframe title={message.subject} sandbox="" srcDoc={srcDoc} />
+              ? <iframe title={message.subject || t("noSubject")} sandbox="" srcDoc={srcDoc} />
               : <pre>{message.bodyText || message.preview}</pre>}
           </div>
           <div className="reply-actions">
             <button className="secondary-button" type="button" onClick={onReply}><CornerUpLeft size={16} />{t("reply")}</button>
-            <button className="secondary-button" type="button"><Forward size={16} />{t("forward")}</button>
+            <button className="secondary-button" type="button" onClick={onForward}><Forward size={16} />{t("forward")}</button>
           </div>
         </div>
       </div>

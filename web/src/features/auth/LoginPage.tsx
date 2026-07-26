@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react"
-import { Check, Eye, EyeOff, Globe2, KeyRound, Moon, ShieldCheck, Sparkles } from "lucide-react"
+import { Check, Eye, EyeOff, Globe2, KeyRound, Moon, ShieldCheck, Sparkles, Sun } from "lucide-react"
 
 import { ApiError, api } from "../../app/api"
 import { useI18n } from "../../i18n/I18nProvider"
@@ -37,7 +37,7 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
           className="utility-button"
           type="button"
           onClick={() => setLocale(locale === "zh-CN" ? "en" : "zh-CN")}
-          aria-label={t("language")}
+          aria-label={locale === "zh-CN" ? t("switchToEnglish") : t("switchToChinese")}
         >
           <Globe2 size={16} />
           <span>{locale === "zh-CN" ? "EN" : "中文"}</span>
@@ -46,9 +46,9 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
           className="utility-button icon-only"
           type="button"
           onClick={() => setMode(resolved === "dark" ? "light" : "dark")}
-          aria-label={t("theme")}
+          aria-label={resolved === "dark" ? t("switchToLight") : t("switchToDark")}
         >
-          <Moon size={17} />
+          {resolved === "dark" ? <Sun size={17} /> : <Moon size={17} />}
         </button>
       </header>
 
@@ -56,12 +56,11 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
         <div className="login-story">
           <div className="brand-lockup">
             <div className="login-logo-wrap">
-              <img src="/meowmail-logo.png" alt={`${t("brandName")} ${t("brandSubtitle")}`} />
+              <img src="/meowmail-logo.png" alt={t("brandName")} />
             </div>
             <div>
               <p className="eyebrow">{t("loginEyebrow")}</p>
               <h1>{t("brandName")}</h1>
-              <span>{t("brandSubtitle")}</span>
             </div>
           </div>
           <div className="login-copy">
@@ -99,7 +98,7 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
                 type="button"
                 className="input-action"
                 onClick={() => setVisible((value) => !value)}
-                aria-label={visible ? "Hide PIN" : "Show PIN"}
+                aria-label={visible ? t("hidePin") : t("showPin")}
               >
                 {visible ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>
