@@ -2,6 +2,26 @@
 
 妙邮（Meowmail）是一个自托管、单用户、多邮件账户的 Web 邮件客户端。后端使用 Rust、Axum、SeaORM 与 SQLite，前端使用 React 19 与 Vite。生产构建会把完整 Web 资源嵌入 Rust 可执行文件，运行时无需 Node.js 或独立静态文件服务器。
 
+## 界面预览
+
+### 登录与桌面工作区
+
+![妙邮 PIN 登录界面](docs/assets/screenshots/login.png)
+
+![妙邮桌面三栏工作区](docs/assets/screenshots/workspace.png)
+
+### 邮件账户代理与通知
+
+| 每账户 HTTP CONNECT / SOCKS5 代理 | 命令与 HTTP Webhook 通知 |
+| :---: | :---: |
+| ![邮件账户及 SOCKS5 代理设置](docs/assets/screenshots/account-proxy.png) | ![新邮件命令和 HTTP 通知设置](docs/assets/screenshots/notifications.png) |
+
+### 移动端
+
+<p align="center">
+  <img src="docs/assets/screenshots/mobile.png" width="320" alt="妙邮移动端收件箱界面">
+</p>
+
 ## 当前能力
 
 - `/login` PIN 登录；部署只需设置一个安全环境变量 `MEOWMAIL_PIN`
