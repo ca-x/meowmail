@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+  NPM_CONFIG_REPLACE_REGISTRY_HOST: always
+
+jobs:
+  web:
+    name: Web checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 26.4.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install pinned npm
+        run: npm install --global npm@12.0.1 --ignore-scripts
+
+      - name: Install locked dependencies
+        run: npm --prefix web ci --ignore-scripts
+
+      - name: Audit known vulnerabilities
+        run: npm --prefix web audit --audit-level=high
+
+      - name: Verify registry signatures
+        run: npm --prefix web audit signatures
+
+      - name: Type-check
+        run: npm --prefix web run typecheck
+
+      - name: Run component tests
+        run: npm --prefix web run test:ci
+
+      - name: Build production Web assets
+        run: npm --prefix web run build
+
+      - name: Upload embedded Web assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 3
+
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
+        with:
+          toolchain: 1.94.0
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Run Rust tests
+        run: cargo test --locked
+
+  embedded-web:
+    name: Embedded release smoke test
+    needs: [web, rust]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable snapshot
+        with:
+          toolchain: 1.94.0
+
+      - name: Download embedded Web assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Smoke-test embedded login route
+        run: |
+          set -euo pipefail
+          binary="$GITHUB_WORKSPACE/target/release/meowmail"
+          run_dir="$(mktemp -d)"
+          log_file="$run_dir/meowmail.log"
+          server_pid=""
+          cleanup() {
+            if [[ -n "$server_pid" ]]; then
+              kill "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+            rm -rf "$run_dir"
+          }
+          trap cleanup EXIT
+          (
+            cd "$run_dir"
+            MEOWMAIL_PIN=ci-meowmail-pin exec "$binary" >"$log_file" 2>&1
+          ) &
+          server_pid=$!
+          for _ in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:8080/api/v1/health >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:8080/api/v1/health | grep '"status":"ok"'
+          curl --fail --silent http://127.0.0.1:8080/login | grep '<div id="root"></div>'
+          curl --fail --silent --dump-header - http://127.0.0.1:8080/login --output /dev/null \
+            | grep -i '^content-security-policy:'
+
+  docker:
+    name: Container build
+    needs: [web, rust]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          push: false
+          tags: meowmail:ci
