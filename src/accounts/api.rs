@@ -29,42 +29,50 @@ async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<MailAccount>>, AppError> {
-    require_session(&state, &headers)?;
-    Ok(Json(repository(&state).list().await?))
+    let session = require_session(&state, &headers)?;
+    Ok(Json(repository(&state).list(session.user_id).await?))
 }
 
 async fn create(
     State(state): State<AppState>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
     Json(input): Json<AccountInput>,
 ) -> Result<Json<MailAccount>, AppError> {
-    Ok(Json(repository(&state).create(input).await?))
+    Ok(Json(
+        repository(&state).create(mutation.0.user_id, input).await?,
+    ))
 }
 
 async fn update(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
     Json(input): Json<AccountInput>,
 ) -> Result<Json<MailAccount>, AppError> {
-    Ok(Json(repository(&state).update(id, input).await?))
+    Ok(Json(
+        repository(&state)
+            .update(mutation.0.user_id, id, input)
+            .await?,
+    ))
 }
 
 async fn remove(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
 ) -> Result<axum::http::StatusCode, AppError> {
-    repository(&state).delete(id).await?;
+    repository(&state).delete(mutation.0.user_id, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 async fn test_saved(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
 ) -> Result<Json<ConnectionTestResponse>, AppError> {
-    let (account, secrets, proxy) = repository(&state).get_with_secrets(id).await?;
+    let (account, secrets, proxy) = repository(&state)
+        .get_with_secrets(mutation.0.user_id, id)
+        .await?;
     test_connection(account, secrets, proxy).await
 }
 

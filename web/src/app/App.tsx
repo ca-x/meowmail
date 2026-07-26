@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react"
 
 import { LoginPage } from "../features/auth/LoginPage"
+import { LockScreen } from "../features/auth/LockScreen"
 import { MailWorkspace } from "../features/mail/MailWorkspace"
 import { useI18n } from "../i18n/I18nProvider"
+import type { AuthConfig, SessionResponse } from "./types"
 import { ApiError, api } from "./api"
 
-type AuthState = { status: "loading" } | { status: "guest" } | { status: "ready" }
+type AuthState =
+  | { status: "loading" }
+  | { status: "guest"; config: AuthConfig }
+  | { status: "locked"; session: SessionResponse }
+  | { status: "ready"; session: SessionResponse }
 
 export function App() {
   const [auth, setAuth] = useState<AuthState>({ status: "loading" })
@@ -19,22 +25,27 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const controller = new AbortController()
-    api.session().then(
-      () => setAuth({ status: "ready" }),
-      (error: unknown) => {
-        if (!controller.signal.aborted) {
-          setAuth(error instanceof ApiError && error.status === 401 ? { status: "guest" } : { status: "guest" })
+    let active = true
+    void (async () => {
+      const config = await api.authConfig().catch(() => ({ localEnabled: true, oidcEnabled: false }))
+      try {
+        const session = await api.session()
+        if (active) setAuth(session.locked ? { status: "locked", session } : { status: "ready", session })
+      } catch (error) {
+        if (active) {
+          setAuth(error instanceof ApiError && error.status === 401
+            ? { status: "guest", config }
+            : { status: "guest", config })
         }
-      },
-    )
-    return () => controller.abort()
+      }
+    })()
+    return () => { active = false }
   }, [])
 
   useEffect(() => {
     const target = auth.status === "guest"
       ? "/login"
-      : auth.status === "ready" && !pathname.startsWith("/mail")
+      : (auth.status === "ready" || auth.status === "locked") && !pathname.startsWith("/mail")
         ? "/mail/inbox"
         : null
     if (target && pathname !== target) {
@@ -56,8 +67,9 @@ export function App() {
   if (auth.status === "guest") {
     return (
       <LoginPage
-        onAuthenticated={() => {
-          setAuth({ status: "ready" })
+        config={auth.config}
+        onAuthenticated={(session) => {
+          setAuth({ status: "ready", session })
           window.history.replaceState(null, "", "/mail/inbox")
           setPathname("/mail/inbox")
         }}
@@ -65,5 +77,29 @@ export function App() {
     )
   }
 
-  return <MailWorkspace onLoggedOut={() => setAuth({ status: "guest" })} />
+  if (auth.status === "locked") {
+    return (
+      <LockScreen
+        session={auth.session}
+        onUnlocked={(session) => setAuth({ status: "ready", session })}
+        onLoggedOut={async () => {
+          await api.logout().catch(() => undefined)
+          const config = await api.authConfig().catch(() => ({ localEnabled: true, oidcEnabled: false }))
+          setAuth({ status: "guest", config })
+        }}
+      />
+    )
+  }
+
+  return (
+    <MailWorkspace
+      session={auth.session}
+      onSessionChanged={(session) => setAuth({ status: "ready", session })}
+      onLocked={(session) => setAuth({ status: "locked", session })}
+      onLoggedOut={async () => {
+        const config = await api.authConfig().catch(() => ({ localEnabled: true, oidcEnabled: false }))
+        setAuth({ status: "guest", config })
+      }}
+    />
+  )
 }

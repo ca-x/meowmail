@@ -4,6 +4,7 @@ use reqwest::redirect::Policy;
 use sea_orm::EntityTrait;
 use serde_json::json;
 use tokio::{process::Command, time::timeout};
+use uuid::Uuid;
 
 use crate::{
     db::{Database, entities::notification_setting},
@@ -40,11 +41,16 @@ impl NotificationRunner {
         });
     }
 
-    pub async fn test(&self, settings: &NotificationSettings) -> Result<(), AppError> {
+    pub async fn test(
+        &self,
+        user_id: Uuid,
+        settings: &NotificationSettings,
+    ) -> Result<(), AppError> {
         validate_settings(settings)?;
         self.run(
             settings,
             &NotificationEvent {
+                user_id,
                 account: "Work".into(),
                 email: "me@example.com".into(),
                 sender: "Meowmail".into(),
@@ -57,7 +63,7 @@ impl NotificationRunner {
     }
 
     async fn dispatch_inner(&self, event: &NotificationEvent) -> Result<(), AppError> {
-        let model = notification_setting::Entity::find_by_id(1)
+        let model = notification_setting::Entity::find_by_id(event.user_id.to_string())
             .one(self.db.connection())
             .await?
             .ok_or_else(|| {
@@ -174,6 +180,7 @@ pub fn validate_settings(settings: &NotificationSettings) -> Result<(), AppError
         ));
     }
     let sample = NotificationEvent {
+        user_id: Uuid::nil(),
         account: "account".into(),
         email: "mail@example.com".into(),
         sender: "sender".into(),

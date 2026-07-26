@@ -1,5 +1,7 @@
 # Meowmail Web Mail Client Implementation Plan
 
+> Historical note: this superseded pre-release MVP plan describes the abandoned single-user PIN design. Meowmail 0.2.0 is the first published version; the current multi-user/OIDC contract is in `docs/specs/multi-user-oidc-0.2.0.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a self-hosted Web mail client named 妙邮 / Meowmail with one PIN-protected application session, multiple IMAP/SMTP mail accounts, per-account HTTP/SOCKS5 proxy support, configurable command/HTTP notifications, themes, Chinese/English UI, SQLite storage, and automated release builds.

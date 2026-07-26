@@ -15,11 +15,14 @@ use crate::{
     AppState,
     accounts::AccountRepository,
     auth::{MutationSession, require_session},
+    cleanup::CleanupRepository,
     error::AppError,
     mail::{connect_imap_session, parse_message, send_smtp},
 };
 
-use super::repository::{MessageDetail, MessageFilter, MessageRepository, MessageSummary};
+use super::repository::{
+    MessageDetail, MessageFilter, MessageRepository, MessageSummary, NewMessage,
+};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -49,7 +52,7 @@ async fn list_messages(
     headers: HeaderMap,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Vec<MessageSummary>>, AppError> {
-    require_session(&state, &headers)?;
+    let session = require_session(&state, &headers)?;
     let folder = query.folder.unwrap_or_else(|| "INBOX".into());
     if folder.is_empty() || folder.len() > 160 {
         return Err(AppError::Validation("folder is invalid".into()));
@@ -63,15 +66,18 @@ async fn list_messages(
     }
     Ok(Json(
         MessageRepository::new(state.db)
-            .list(MessageFilter {
-                account_id: query.account_id,
-                folder,
-                unread: query.unread,
-                starred: query.starred,
-                has_attachment: query.has_attachment,
-                query: search,
-                limit: query.limit.unwrap_or(80),
-            })
+            .list(
+                session.user_id,
+                MessageFilter {
+                    account_id: query.account_id,
+                    folder,
+                    unread: query.unread,
+                    starred: query.starred,
+                    has_attachment: query.has_attachment,
+                    query: search,
+                    limit: query.limit.unwrap_or(80),
+                },
+            )
             .await?,
     ))
 }
@@ -81,8 +87,12 @@ async fn get_message(
     Path(id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<MessageDetail>, AppError> {
-    require_session(&state, &headers)?;
-    Ok(Json(MessageRepository::new(state.db).get(id).await?))
+    let session = require_session(&state, &headers)?;
+    Ok(Json(
+        MessageRepository::new(state.db)
+            .get(session.user_id, id)
+            .await?,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -95,7 +105,7 @@ struct FlagUpdate {
 async fn update_message(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
     Json(update): Json<FlagUpdate>,
 ) -> Result<Json<MessageSummary>, AppError> {
     if update.is_read.is_none() && update.is_starred.is_none() {
@@ -105,7 +115,7 @@ async fn update_message(
     }
     Ok(Json(
         MessageRepository::new(state.db)
-            .update_flags(id, update.is_read, update.is_starred)
+            .update_flags(mutation.0.user_id, id, update.is_read, update.is_starred)
             .await?,
     ))
 }
@@ -113,10 +123,10 @@ async fn update_message(
 async fn sync_account(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
 ) -> Result<Json<SyncResponse>, AppError> {
     let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
-    let (account, secrets, proxy) = accounts.get_with_secrets(id).await?;
+    let (account, secrets, proxy) = accounts.get_with_secrets(mutation.0.user_id, id).await?;
     let mut session = connect_imap_session(&account, &secrets, &proxy)
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
@@ -124,7 +134,24 @@ async fn sync_account(
         .select("INBOX")
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
+    let cleanup = CleanupRepository::new(state.db.clone());
+    let settings = cleanup.settings(mutation.0.user_id).await?;
+    let rules = cleanup
+        .enabled_for_account(mutation.0.user_id, account.id)
+        .await?;
+    let server_uids = if settings.keep_local_after_server_delete {
+        None
+    } else {
+        Some(
+            session
+                .uid_search("ALL")
+                .await
+                .map_err(|error| AppError::Mail(error.to_string()))?,
+        )
+    };
     let mut inserted = 0_u32;
+    let mut removed = 0_u64;
+    let mut server_delete_uids = Vec::new();
     if mailbox.exists > 0 {
         let start = mailbox.exists.saturating_sub(49).max(1);
         let sequence = format!("{start}:{}", mailbox.exists);
@@ -146,15 +173,28 @@ async fn sync_account(
                 else {
                     continue;
                 };
+                if let Some(rule) = CleanupRepository::match_new_mail(
+                    &rules,
+                    &parsed,
+                    OffsetDateTime::now_utc().unix_timestamp(),
+                ) {
+                    if rule.delete_from_server {
+                        server_delete_uids.push(i64::from(uid));
+                    }
+                    continue;
+                }
                 let flags = fetch.flags().collect::<Vec<_>>();
                 if let Some(event) = repository
                     .insert_if_new(
+                        mutation.0.user_id,
                         &account,
-                        "INBOX",
-                        i64::from(uid),
-                        parsed,
-                        flags.contains(&Flag::Seen),
-                        flags.contains(&Flag::Flagged),
+                        NewMessage {
+                            folder: "INBOX".into(),
+                            uid: i64::from(uid),
+                            mail: parsed,
+                            is_read: flags.contains(&Flag::Seen),
+                            is_starred: flags.contains(&Flag::Flagged),
+                        },
                     )
                     .await?
                 {
@@ -167,11 +207,52 @@ async fn sync_account(
             state.notifications.dispatch(event);
         }
     }
+    server_delete_uids.extend(
+        cleanup
+            .apply_cached_rules(
+                mutation.0.user_id,
+                account.id,
+                &rules,
+                OffsetDateTime::now_utc().unix_timestamp(),
+            )
+            .await?,
+    );
+    server_delete_uids.sort_unstable();
+    server_delete_uids.dedup();
+    if !server_delete_uids.is_empty() {
+        let uid_set = server_delete_uids
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        session
+            .uid_store(&uid_set, "+FLAGS.SILENT (\\Deleted)")
+            .await
+            .map_err(|error| AppError::Mail(error.to_string()))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|error| AppError::Mail(error.to_string()))?;
+        session
+            .uid_expunge(&uid_set)
+            .await
+            .map_err(|error| AppError::Mail(error.to_string()))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|error| AppError::Mail(error.to_string()))?;
+    }
+    if let Some(server_uids) = server_uids.as_ref() {
+        removed += cleanup
+            .reconcile_server_uids(mutation.0.user_id, account.id, server_uids)
+            .await?;
+    }
     let _ = session.logout().await;
     let synced_at = OffsetDateTime::now_utc().unix_timestamp();
-    accounts.mark_synced(id, synced_at).await?;
+    accounts
+        .mark_synced(mutation.0.user_id, id, synced_at)
+        .await?;
     Ok(Json(SyncResponse {
         inserted,
+        removed,
         synced_at,
     }))
 }
@@ -180,6 +261,7 @@ async fn sync_account(
 #[serde(rename_all = "camelCase")]
 struct SyncResponse {
     inserted: u32,
+    removed: u64,
     synced_at: i64,
 }
 
@@ -199,12 +281,14 @@ struct ComposeRequest {
 
 async fn send_message(
     State(state): State<AppState>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
     Json(mut input): Json<ComposeRequest>,
 ) -> Result<axum::http::StatusCode, AppError> {
     validate_compose(&mut input)?;
     let accounts = AccountRepository::new(state.db, state.vault);
-    let (account, secrets, proxy) = accounts.get_with_secrets(input.account_id).await?;
+    let (account, secrets, proxy) = accounts
+        .get_with_secrets(mutation.0.user_id, input.account_id)
+        .await?;
     let mut builder = MessageBuilder::new()
         .from((account.display_name.clone(), account.email.clone()))
         .to(input.to.clone())

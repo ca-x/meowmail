@@ -76,8 +76,74 @@ export interface NotificationSettings {
   httpUrl?: string | null
 }
 
+export type UserRole = "admin" | "user"
+
+export interface PublicUser {
+  id: string
+  username: string
+  nickname: string
+  email?: string | null
+  role: UserRole
+  hasPassword: boolean
+  hasPin: boolean
+  hasAvatar: boolean
+  updatedAt: number
+}
+
+export interface AuthConfig {
+  localEnabled: boolean
+  oidcEnabled: boolean
+}
+
+export interface MailSettings {
+  keepLocalAfterServerDelete: boolean
+}
+
+export interface CleanupRuleInput {
+  accountId?: string | null
+  name: string
+  senderContains?: string | null
+  subjectContains?: string | null
+  bodyContains?: string | null
+  olderThanDays?: number | null
+  deleteFromServer: boolean
+  enabled: boolean
+}
+
+export interface CleanupRule extends CleanupRuleInput {
+  id: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type MigrationScope = "mine" | "allUsers"
+
+export interface MigrationSections {
+  profile: boolean
+  mailAccounts: boolean
+  notifications: boolean
+  cleanup: boolean
+}
+
+export interface MigrationArchive {
+  format: string
+  version: number
+  scope: MigrationScope
+  sections: MigrationSections
+  encryptedData: string
+}
+
+export interface ImportReport {
+  usersImported: number
+  accountsImported: number
+  rulesImported: number
+  conflicts: string[]
+}
+
 export interface SessionResponse {
   authenticated: boolean
+  locked: boolean
   csrfToken: string
   version: string
+  user: PublicUser
 }

@@ -29,18 +29,18 @@ async fn get_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<NotificationSettings>, AppError> {
-    require_session(&state, &headers)?;
-    Ok(Json(load(&state).await?))
+    let session = require_session(&state, &headers)?;
+    Ok(Json(load(&state, session.user_id).await?))
 }
 
 async fn update_settings(
     State(state): State<AppState>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
     Json(mut settings): Json<NotificationSettings>,
 ) -> Result<Json<NotificationSettings>, AppError> {
     normalize(&mut settings);
     validate_settings(&settings)?;
-    let model = notification_setting::Entity::find_by_id(1)
+    let model = notification_setting::Entity::find_by_id(mutation.0.user_id.to_string())
         .one(state.db.connection())
         .await?
         .ok_or_else(|| AppError::internal(anyhow::anyhow!("notification settings are missing")))?;
@@ -56,16 +56,19 @@ async fn update_settings(
 
 async fn test_settings(
     State(state): State<AppState>,
-    _mutation: MutationSession,
+    mutation: MutationSession,
     Json(mut settings): Json<NotificationSettings>,
 ) -> Result<axum::http::StatusCode, AppError> {
     normalize(&mut settings);
-    state.notifications.test(&settings).await?;
+    state
+        .notifications
+        .test(mutation.0.user_id, &settings)
+        .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-async fn load(state: &AppState) -> Result<NotificationSettings, AppError> {
-    let model = notification_setting::Entity::find_by_id(1)
+async fn load(state: &AppState, user_id: uuid::Uuid) -> Result<NotificationSettings, AppError> {
+    let model = notification_setting::Entity::find_by_id(user_id.to_string())
         .one(state.db.connection())
         .await?
         .ok_or_else(|| AppError::internal(anyhow::anyhow!("notification settings are missing")))?;

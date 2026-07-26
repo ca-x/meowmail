@@ -9,230 +9,158 @@ impl MigratorTrait for Migrator {
     }
 }
 
-#[derive(DeriveMigrationName)]
 struct InitialMigration;
+
+impl MigrationName for InitialMigration {
+    fn name(&self) -> &str {
+        "m20260726_000001_initial"
+    }
+}
 
 #[async_trait::async_trait]
 impl MigrationTrait for InitialMigration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .create_table(
-                Table::create()
-                    .table(MailAccount::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(MailAccount::Id)
-                            .string()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(MailAccount::DisplayName)
-                            .string_len(80)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(MailAccount::Email)
-                            .string_len(254)
-                            .not_null()
-                            .unique_key(),
-                    )
-                    .col(
-                        ColumnDef::new(MailAccount::Username)
-                            .string_len(320)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(MailAccount::PasswordCipher)
-                            .text()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(MailAccount::ImapHost)
-                            .string_len(253)
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(MailAccount::ImapPort).integer().not_null())
-                    .col(
-                        ColumnDef::new(MailAccount::ImapSecurity)
-                            .string_len(16)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(MailAccount::SmtpHost)
-                            .string_len(253)
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(MailAccount::SmtpPort).integer().not_null())
-                    .col(
-                        ColumnDef::new(MailAccount::SmtpSecurity)
-                            .string_len(16)
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(MailAccount::ProxyKind)
-                            .string_len(16)
-                            .not_null()
-                            .default("direct"),
-                    )
-                    .col(ColumnDef::new(MailAccount::ProxyHost).string_len(253))
-                    .col(ColumnDef::new(MailAccount::ProxyPort).integer())
-                    .col(ColumnDef::new(MailAccount::ProxyUsername).string_len(255))
-                    .col(ColumnDef::new(MailAccount::ProxyPasswordCipher).text())
-                    .col(
-                        ColumnDef::new(MailAccount::IsDefault)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
-                    .col(ColumnDef::new(MailAccount::LastSyncedAt).big_integer())
-                    .col(
-                        ColumnDef::new(MailAccount::CreatedAt)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(MailAccount::UpdatedAt)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_table(
-                Table::create()
-                    .table(Message::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(Message::Id)
-                            .string()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(Message::AccountId).string().not_null())
-                    .col(ColumnDef::new(Message::Folder).string_len(160).not_null())
-                    .col(ColumnDef::new(Message::Uid).big_integer().not_null())
-                    .col(ColumnDef::new(Message::InternetMessageId).string_len(998))
-                    .col(ColumnDef::new(Message::SenderName).string_len(320))
-                    .col(
-                        ColumnDef::new(Message::SenderEmail)
-                            .string_len(320)
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(Message::RecipientsJson).text().not_null())
-                    .col(ColumnDef::new(Message::Subject).text().not_null())
-                    .col(ColumnDef::new(Message::Preview).text().not_null())
-                    .col(ColumnDef::new(Message::BodyText).text().not_null())
-                    .col(ColumnDef::new(Message::BodyHtml).text())
-                    .col(ColumnDef::new(Message::ReceivedAt).big_integer().not_null())
-                    .col(
-                        ColumnDef::new(Message::IsRead)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
-                    .col(
-                        ColumnDef::new(Message::IsStarred)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
-                    .col(
-                        ColumnDef::new(Message::AttachmentCount)
-                            .integer()
-                            .not_null()
-                            .default(0),
-                    )
-                    .col(ColumnDef::new(Message::CreatedAt).big_integer().not_null())
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_messages_account")
-                            .from(Message::Table, Message::AccountId)
-                            .to(MailAccount::Table, MailAccount::Id)
-                            .on_update(ForeignKeyAction::Cascade)
-                            .on_delete(ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_messages_account_folder_uid")
-                    .table(Message::Table)
-                    .col(Message::AccountId)
-                    .col(Message::Folder)
-                    .col(Message::Uid)
-                    .unique()
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_messages_list")
-                    .table(Message::Table)
-                    .col(Message::AccountId)
-                    .col(Message::Folder)
-                    .col(Message::ReceivedAt)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_table(
-                Table::create()
-                    .table(Preference::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(Preference::Key)
-                            .string()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(Preference::Value).text().not_null())
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_table(
-                Table::create()
-                    .table(NotificationSetting::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(NotificationSetting::Singleton)
-                            .integer()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(NotificationSetting::Enabled)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
-                    .col(
-                        ColumnDef::new(NotificationSetting::MessageTemplate)
-                            .text()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(NotificationSetting::CommandTemplate).text())
-                    .col(ColumnDef::new(NotificationSetting::HttpUrl).text())
-                    .col(
-                        ColumnDef::new(NotificationSetting::UpdatedAt)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-        manager
             .get_connection()
             .execute_unprepared(
-                "INSERT OR IGNORE INTO notification_settings(singleton, enabled, message_template, updated_at) VALUES(1, 0, '[{account}] {sender}: {subject}', unixepoch())",
+                r#"
+                CREATE TABLE users (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    nickname TEXT NOT NULL,
+                    email TEXT,
+                    role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+                    password_hash TEXT,
+                    pin_hash TEXT,
+                    avatar_mime TEXT,
+                    avatar_data BLOB,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    last_login_at BIGINT
+                );
+
+                CREATE TABLE user_identities (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    issuer TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    last_login_at BIGINT NOT NULL,
+                    CONSTRAINT fk_identity_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(issuer, subject)
+                );
+                CREATE INDEX idx_user_identities_user ON user_identities(user_id);
+
+                CREATE TABLE system_state (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL
+                );
+
+                CREATE TABLE mail_accounts (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    display_name VARCHAR(80) NOT NULL,
+                    email VARCHAR(254) NOT NULL,
+                    username VARCHAR(320) NOT NULL,
+                    password_cipher TEXT NOT NULL,
+                    imap_host VARCHAR(253) NOT NULL,
+                    imap_port INTEGER NOT NULL,
+                    imap_security VARCHAR(16) NOT NULL,
+                    smtp_host VARCHAR(253) NOT NULL,
+                    smtp_port INTEGER NOT NULL,
+                    smtp_security VARCHAR(16) NOT NULL,
+                    proxy_kind VARCHAR(16) NOT NULL DEFAULT 'direct',
+                    proxy_host VARCHAR(253),
+                    proxy_port INTEGER,
+                    proxy_username VARCHAR(255),
+                    proxy_password_cipher TEXT,
+                    is_default BOOLEAN NOT NULL DEFAULT 0,
+                    last_synced_at BIGINT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_mail_account_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(user_id, email)
+                );
+                CREATE INDEX idx_mail_accounts_user ON mail_accounts(user_id, created_at);
+
+                CREATE TABLE messages (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    folder VARCHAR(160) NOT NULL,
+                    uid BIGINT NOT NULL,
+                    message_id VARCHAR(998),
+                    sender_name VARCHAR(320),
+                    sender_email VARCHAR(320) NOT NULL,
+                    recipients_json TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    preview TEXT NOT NULL,
+                    body_text TEXT NOT NULL,
+                    body_html TEXT,
+                    received_at BIGINT NOT NULL,
+                    is_read BOOLEAN NOT NULL DEFAULT 0,
+                    is_starred BOOLEAN NOT NULL DEFAULT 0,
+                    attachment_count INTEGER NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL,
+                    CONSTRAINT fk_message_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    CONSTRAINT fk_message_account FOREIGN KEY(account_id)
+                        REFERENCES mail_accounts(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(account_id, folder, uid)
+                );
+                CREATE INDEX idx_messages_user_list
+                    ON messages(user_id, account_id, folder, received_at);
+
+                CREATE TABLE preferences (
+                    user_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    PRIMARY KEY(user_id, key),
+                    CONSTRAINT fk_preference_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+                );
+
+                CREATE TABLE notification_settings (
+                    user_id TEXT PRIMARY KEY NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT 0,
+                    message_template TEXT NOT NULL,
+                    command_template TEXT,
+                    http_url TEXT,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_notification_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+                );
+
+                CREATE TABLE mail_settings (
+                    user_id TEXT PRIMARY KEY NOT NULL,
+                    keep_local_after_server_delete BOOLEAN NOT NULL DEFAULT 1,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_mail_setting_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+                );
+
+                CREATE TABLE cleanup_rules (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    account_id TEXT,
+                    name VARCHAR(120) NOT NULL,
+                    sender_contains VARCHAR(320),
+                    subject_contains VARCHAR(998),
+                    body_contains TEXT,
+                    older_than_days INTEGER,
+                    delete_from_server BOOLEAN NOT NULL DEFAULT 0,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_cleanup_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    CONSTRAINT fk_cleanup_account FOREIGN KEY(account_id)
+                        REFERENCES mail_accounts(id) ON UPDATE CASCADE ON DELETE CASCADE
+                );
+                CREATE INDEX idx_cleanup_rules_user ON cleanup_rules(user_id, enabled);
+                "#,
             )
             .await?;
         Ok(())
@@ -240,87 +168,21 @@ impl MigrationTrait for InitialMigration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(NotificationSetting::Table).to_owned())
-            .await?;
-        manager
-            .drop_table(Table::drop().table(Preference::Table).to_owned())
-            .await?;
-        manager
-            .drop_table(Table::drop().table(Message::Table).to_owned())
-            .await?;
-        manager
-            .drop_table(Table::drop().table(MailAccount::Table).to_owned())
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                DROP TABLE IF EXISTS cleanup_rules;
+                DROP TABLE IF EXISTS mail_settings;
+                DROP TABLE IF EXISTS notification_settings;
+                DROP TABLE IF EXISTS preferences;
+                DROP TABLE IF EXISTS messages;
+                DROP TABLE IF EXISTS mail_accounts;
+                DROP TABLE IF EXISTS user_identities;
+                DROP TABLE IF EXISTS system_state;
+                DROP TABLE IF EXISTS users;
+                "#,
+            )
             .await?;
         Ok(())
     }
-}
-
-#[derive(DeriveIden)]
-enum MailAccount {
-    #[sea_orm(iden = "mail_accounts")]
-    Table,
-    Id,
-    DisplayName,
-    Email,
-    Username,
-    PasswordCipher,
-    ImapHost,
-    ImapPort,
-    ImapSecurity,
-    SmtpHost,
-    SmtpPort,
-    SmtpSecurity,
-    ProxyKind,
-    ProxyHost,
-    ProxyPort,
-    ProxyUsername,
-    ProxyPasswordCipher,
-    IsDefault,
-    LastSyncedAt,
-    CreatedAt,
-    UpdatedAt,
-}
-
-#[derive(DeriveIden)]
-enum Message {
-    #[sea_orm(iden = "messages")]
-    Table,
-    Id,
-    AccountId,
-    Folder,
-    Uid,
-    #[sea_orm(iden = "message_id")]
-    InternetMessageId,
-    SenderName,
-    SenderEmail,
-    RecipientsJson,
-    Subject,
-    Preview,
-    BodyText,
-    BodyHtml,
-    ReceivedAt,
-    IsRead,
-    IsStarred,
-    AttachmentCount,
-    CreatedAt,
-}
-
-#[derive(DeriveIden)]
-enum Preference {
-    #[sea_orm(iden = "preferences")]
-    Table,
-    Key,
-    Value,
-}
-
-#[derive(DeriveIden)]
-enum NotificationSetting {
-    #[sea_orm(iden = "notification_settings")]
-    Table,
-    Singleton,
-    Enabled,
-    MessageTemplate,
-    CommandTemplate,
-    HttpUrl,
-    UpdatedAt,
 }

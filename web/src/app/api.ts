@@ -1,9 +1,18 @@
 import type {
   AccountInput,
+  AuthConfig,
+  CleanupRule,
+  CleanupRuleInput,
+  ImportReport,
   MailAccount,
+  MailSettings,
   MessageDetail,
   MessageSummary,
+  MigrationArchive,
+  MigrationScope,
+  MigrationSections,
   NotificationSettings,
+  PublicUser,
   SessionResponse,
 } from "./types"
 
@@ -42,15 +51,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  authConfig: () => request<AuthConfig>("/api/v1/auth/config"),
   async session() {
     const session = await request<SessionResponse>("/api/v1/session")
     csrfToken = session.csrfToken
     return session
   },
-  async login(pin: string) {
+  async login(username: string, password: string) {
     const session = await request<SessionResponse>("/api/v1/auth/login", {
       method: "POST",
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({ username, password }),
     })
     csrfToken = session.csrfToken
     return session
@@ -59,6 +69,31 @@ export const api = {
     await request<void>("/api/v1/auth/logout", { method: "POST" })
     csrfToken = ""
   },
+  lock: () => request<SessionResponse>("/api/v1/auth/lock", { method: "POST" }),
+  unlock: (pin: string) =>
+    request<SessionResponse>("/api/v1/auth/unlock", {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
+  setPin: (pin: string) =>
+    request<PublicUser>("/api/v1/auth/pin", {
+      method: "PUT",
+      body: JSON.stringify({ pin }),
+    }),
+  removePin: () => request<PublicUser>("/api/v1/auth/pin", { method: "DELETE" }),
+  profile: () => request<PublicUser>("/api/v1/users/me"),
+  updateProfile: (nickname: string) =>
+    request<PublicUser>("/api/v1/users/me", {
+      method: "PATCH",
+      body: JSON.stringify({ nickname }),
+    }),
+  updateAvatar: (file: File) =>
+    request<PublicUser>("/api/v1/users/me/avatar", {
+      method: "PUT",
+      headers: { "content-type": file.type },
+      body: file,
+    }),
+  removeAvatar: () => request<PublicUser>("/api/v1/users/me/avatar", { method: "DELETE" }),
   accounts: () => request<MailAccount[]>("/api/v1/accounts"),
   createAccount: (input: AccountInput) =>
     request<MailAccount>("/api/v1/accounts", { method: "POST", body: JSON.stringify(input) }),
@@ -107,4 +142,39 @@ export const api = {
       method: "POST",
       body: JSON.stringify(settings),
     }),
+  mailSettings: () => request<MailSettings>("/api/v1/mail/settings"),
+  updateMailSettings: (settings: MailSettings) =>
+    request<MailSettings>("/api/v1/mail/settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
+  cleanupRules: () => request<CleanupRule[]>("/api/v1/cleanup/rules"),
+  createCleanupRule: (input: CleanupRuleInput) =>
+    request<CleanupRule>("/api/v1/cleanup/rules", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateCleanupRule: (id: string, input: CleanupRuleInput) =>
+    request<CleanupRule>(`/api/v1/cleanup/rules/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteCleanupRule: (id: string) =>
+    request<void>(`/api/v1/cleanup/rules/${id}`, { method: "DELETE" }),
+  exportConfiguration: (
+    passphrase: string,
+    scope: MigrationScope,
+    sections: MigrationSections,
+  ) => request<MigrationArchive>("/api/v1/users/migration/export", {
+    method: "POST",
+    body: JSON.stringify({ passphrase, scope, sections }),
+  }),
+  importConfiguration: (
+    passphrase: string,
+    sections: MigrationSections,
+    archive: MigrationArchive,
+  ) => request<ImportReport>("/api/v1/users/migration/import", {
+    method: "POST",
+    body: JSON.stringify({ passphrase, sections, archive }),
+  }),
 }

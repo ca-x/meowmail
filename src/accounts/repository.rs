@@ -28,8 +28,9 @@ impl AccountRepository {
         Self { db, vault }
     }
 
-    pub async fn list(&self) -> Result<Vec<MailAccount>, AppError> {
+    pub async fn list(&self, user_id: Uuid) -> Result<Vec<MailAccount>, AppError> {
         mail_account::Entity::find()
+            .filter(mail_account::Column::UserId.eq(user_id.to_string()))
             .order_by_desc(mail_account::Column::IsDefault)
             .order_by_asc(mail_account::Column::CreatedAt)
             .all(self.db.connection())
@@ -39,15 +40,16 @@ impl AccountRepository {
             .collect()
     }
 
-    pub async fn get(&self, id: Uuid) -> Result<MailAccount, AppError> {
-        MailAccount::try_from(self.get_model(id).await?)
+    pub async fn get(&self, user_id: Uuid, id: Uuid) -> Result<MailAccount, AppError> {
+        MailAccount::try_from(self.get_model(user_id, id).await?)
     }
 
     pub async fn get_with_secrets(
         &self,
+        user_id: Uuid,
         id: Uuid,
     ) -> Result<(MailAccount, AccountSecrets, ProxyConfig), AppError> {
-        let model = self.get_model(id).await?;
+        let model = self.get_model(user_id, id).await?;
         let secrets = AccountSecrets {
             password: self
                 .vault
@@ -63,9 +65,14 @@ impl AccountRepository {
         Ok((MailAccount::try_from(model)?, secrets, proxy))
     }
 
-    pub async fn create(&self, mut input: AccountInput) -> Result<MailAccount, AppError> {
+    pub async fn create(
+        &self,
+        user_id: Uuid,
+        mut input: AccountInput,
+    ) -> Result<MailAccount, AppError> {
         input.validate(true)?;
-        self.ensure_email_available(&input.email, None).await?;
+        self.ensure_email_available(user_id, &input.email, None)
+            .await?;
         let id = Uuid::new_v4();
         let now = OffsetDateTime::now_utc().unix_timestamp();
         let password_cipher = self
@@ -79,13 +86,17 @@ impl AccountRepository {
             .map_err(AppError::internal)?;
         let proxy_password_cipher = seal_optional(&self.vault, input.proxy.password.as_deref())?;
         let transaction = self.db.connection().begin().await?;
-        let count = mail_account::Entity::find().count(&transaction).await?;
+        let count = mail_account::Entity::find()
+            .filter(mail_account::Column::UserId.eq(user_id.to_string()))
+            .count(&transaction)
+            .await?;
         let is_default = input.is_default || count == 0;
         if is_default {
-            clear_default(&transaction).await?;
+            clear_default(&transaction, user_id).await?;
         }
         mail_account::ActiveModel {
             id: Set(id.to_string()),
+            user_id: Set(Some(user_id.to_string())),
             display_name: Set(input.display_name),
             email: Set(input.email),
             username: Set(input.username),
@@ -109,13 +120,19 @@ impl AccountRepository {
         .insert(&transaction)
         .await?;
         transaction.commit().await?;
-        self.get(id).await
+        self.get(user_id, id).await
     }
 
-    pub async fn update(&self, id: Uuid, mut input: AccountInput) -> Result<MailAccount, AppError> {
+    pub async fn update(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+        mut input: AccountInput,
+    ) -> Result<MailAccount, AppError> {
         input.validate(false)?;
-        self.ensure_email_available(&input.email, Some(id)).await?;
-        let existing = self.get_model(id).await?;
+        self.ensure_email_available(user_id, &input.email, Some(id))
+            .await?;
+        let existing = self.get_model(user_id, id).await?;
         let password_cipher = match input.password.as_deref() {
             Some(password) => self.vault.seal(password).map_err(AppError::internal)?,
             None => existing.password_cipher.clone(),
@@ -130,7 +147,7 @@ impl AccountRepository {
         };
         let transaction = self.db.connection().begin().await?;
         if input.is_default {
-            clear_default(&transaction).await?;
+            clear_default(&transaction, user_id).await?;
         }
         let mut active = existing.clone().into_active_model();
         active.display_name = Set(input.display_name);
@@ -152,27 +169,34 @@ impl AccountRepository {
         active.updated_at = Set(OffsetDateTime::now_utc().unix_timestamp());
         active.update(&transaction).await?;
         if !input.is_default && existing.is_default {
-            ensure_default(&transaction).await?;
+            ensure_default(&transaction, user_id).await?;
         }
         transaction.commit().await?;
-        self.get(id).await
+        self.get(user_id, id).await
     }
 
-    pub async fn delete(&self, id: Uuid) -> Result<(), AppError> {
+    pub async fn delete(&self, user_id: Uuid, id: Uuid) -> Result<(), AppError> {
         let transaction = self.db.connection().begin().await?;
-        let result = mail_account::Entity::delete_by_id(id.to_string())
+        let result = mail_account::Entity::delete_many()
+            .filter(mail_account::Column::Id.eq(id.to_string()))
+            .filter(mail_account::Column::UserId.eq(user_id.to_string()))
             .exec(&transaction)
             .await?;
         if result.rows_affected == 0 {
             return Err(AppError::NotFound);
         }
-        ensure_default(&transaction).await?;
+        ensure_default(&transaction, user_id).await?;
         transaction.commit().await?;
         Ok(())
     }
 
-    pub async fn mark_synced(&self, id: Uuid, timestamp: i64) -> Result<(), AppError> {
-        let model = self.get_model(id).await?;
+    pub async fn mark_synced(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+        timestamp: i64,
+    ) -> Result<(), AppError> {
+        let model = self.get_model(user_id, id).await?;
         let mut active = model.into_active_model();
         active.last_synced_at = Set(Some(timestamp));
         active.updated_at = Set(timestamp);
@@ -180,8 +204,10 @@ impl AccountRepository {
         Ok(())
     }
 
-    async fn get_model(&self, id: Uuid) -> Result<mail_account::Model, AppError> {
-        mail_account::Entity::find_by_id(id.to_string())
+    async fn get_model(&self, user_id: Uuid, id: Uuid) -> Result<mail_account::Model, AppError> {
+        mail_account::Entity::find()
+            .filter(mail_account::Column::Id.eq(id.to_string()))
+            .filter(mail_account::Column::UserId.eq(user_id.to_string()))
             .one(self.db.connection())
             .await?
             .ok_or(AppError::NotFound)
@@ -189,10 +215,12 @@ impl AccountRepository {
 
     async fn ensure_email_available(
         &self,
+        user_id: Uuid,
         email: &str,
         except: Option<Uuid>,
     ) -> Result<(), AppError> {
         let existing = mail_account::Entity::find()
+            .filter(mail_account::Column::UserId.eq(user_id.to_string()))
             .filter(mail_account::Column::Email.eq(email))
             .one(self.db.connection())
             .await?;
@@ -259,8 +287,12 @@ fn seal_optional(vault: &CredentialVault, value: Option<&str>) -> Result<Option<
         .transpose()
 }
 
-async fn clear_default(connection: &impl sea_orm::ConnectionTrait) -> Result<(), AppError> {
+async fn clear_default(
+    connection: &impl sea_orm::ConnectionTrait,
+    user_id: Uuid,
+) -> Result<(), AppError> {
     mail_account::Entity::update_many()
+        .filter(mail_account::Column::UserId.eq(user_id.to_string()))
         .col_expr(
             mail_account::Column::IsDefault,
             sea_orm::sea_query::Expr::value(false),
@@ -270,13 +302,18 @@ async fn clear_default(connection: &impl sea_orm::ConnectionTrait) -> Result<(),
     Ok(())
 }
 
-async fn ensure_default(connection: &impl sea_orm::ConnectionTrait) -> Result<(), AppError> {
+async fn ensure_default(
+    connection: &impl sea_orm::ConnectionTrait,
+    user_id: Uuid,
+) -> Result<(), AppError> {
     if mail_account::Entity::find()
+        .filter(mail_account::Column::UserId.eq(user_id.to_string()))
         .filter(mail_account::Column::IsDefault.eq(true))
         .count(connection)
         .await?
         == 0
         && let Some(model) = mail_account::Entity::find()
+            .filter(mail_account::Column::UserId.eq(user_id.to_string()))
             .order_by_asc(mail_account::Column::CreatedAt)
             .one(connection)
             .await?

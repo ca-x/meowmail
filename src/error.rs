@@ -11,6 +11,10 @@ pub enum AppError {
     Unauthorized,
     #[error("request verification failed")]
     Csrf,
+    #[error("session is locked")]
+    Locked,
+    #[error("permission denied")]
+    Forbidden,
     #[error("too many requests")]
     RateLimited,
     #[error("resource not found")]
@@ -44,6 +48,8 @@ impl IntoResponse for AppError {
                 "REQUEST_VERIFICATION_FAILED",
                 self.to_string(),
             ),
+            Self::Locked => (StatusCode::LOCKED, "SESSION_LOCKED", self.to_string()),
+            Self::Forbidden => (StatusCode::FORBIDDEN, "FORBIDDEN", self.to_string()),
             Self::RateLimited => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "RATE_LIMITED",

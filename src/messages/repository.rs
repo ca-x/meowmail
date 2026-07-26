@@ -58,13 +58,27 @@ pub struct MessageFilter {
     pub limit: u64,
 }
 
+pub struct NewMessage {
+    pub folder: String,
+    pub uid: i64,
+    pub mail: ParsedMail,
+    pub is_read: bool,
+    pub is_starred: bool,
+}
+
 impl MessageRepository {
     pub fn new(db: Database) -> Self {
         Self { db }
     }
 
-    pub async fn list(&self, filter: MessageFilter) -> Result<Vec<MessageSummary>, AppError> {
-        let mut query = message::Entity::find().filter(message::Column::Folder.eq(filter.folder));
+    pub async fn list(
+        &self,
+        user_id: Uuid,
+        filter: MessageFilter,
+    ) -> Result<Vec<MessageSummary>, AppError> {
+        let mut query = message::Entity::find()
+            .filter(message::Column::UserId.eq(user_id.to_string()))
+            .filter(message::Column::Folder.eq(filter.folder));
         if let Some(account_id) = filter.account_id {
             query = query.filter(message::Column::AccountId.eq(account_id.to_string()));
         }
@@ -96,8 +110,10 @@ impl MessageRepository {
             .collect()
     }
 
-    pub async fn get(&self, id: Uuid) -> Result<MessageDetail, AppError> {
-        let model = message::Entity::find_by_id(id.to_string())
+    pub async fn get(&self, user_id: Uuid, id: Uuid) -> Result<MessageDetail, AppError> {
+        let model = message::Entity::find()
+            .filter(message::Column::Id.eq(id.to_string()))
+            .filter(message::Column::UserId.eq(user_id.to_string()))
             .one(self.db.connection())
             .await?
             .ok_or(AppError::NotFound)?;
@@ -114,11 +130,14 @@ impl MessageRepository {
 
     pub async fn update_flags(
         &self,
+        user_id: Uuid,
         id: Uuid,
         is_read: Option<bool>,
         is_starred: Option<bool>,
     ) -> Result<MessageSummary, AppError> {
-        let model = message::Entity::find_by_id(id.to_string())
+        let model = message::Entity::find()
+            .filter(message::Column::Id.eq(id.to_string()))
+            .filter(message::Column::UserId.eq(user_id.to_string()))
             .one(self.db.connection())
             .await?
             .ok_or(AppError::NotFound)?;
@@ -134,16 +153,21 @@ impl MessageRepository {
 
     pub async fn insert_if_new(
         &self,
+        user_id: Uuid,
         account: &MailAccount,
-        folder: &str,
-        uid: i64,
-        mail: ParsedMail,
-        is_read: bool,
-        is_starred: bool,
+        input: NewMessage,
     ) -> Result<Option<NotificationEvent>, AppError> {
+        let NewMessage {
+            folder,
+            uid,
+            mail,
+            is_read,
+            is_starred,
+        } = input;
         let exists = message::Entity::find()
+            .filter(message::Column::UserId.eq(user_id.to_string()))
             .filter(message::Column::AccountId.eq(account.id.to_string()))
-            .filter(message::Column::Folder.eq(folder))
+            .filter(message::Column::Folder.eq(&folder))
             .filter(message::Column::Uid.eq(uid))
             .one(self.db.connection())
             .await?
@@ -156,6 +180,7 @@ impl MessageRepository {
             .clone()
             .unwrap_or_else(|| mail.sender_email.clone());
         let event = NotificationEvent {
+            user_id,
             account: account.display_name.clone(),
             email: account.email.clone(),
             sender,
@@ -165,8 +190,9 @@ impl MessageRepository {
         };
         message::ActiveModel {
             id: Set(Uuid::new_v4().to_string()),
+            user_id: Set(Some(user_id.to_string())),
             account_id: Set(account.id.to_string()),
-            folder: Set(folder.to_owned()),
+            folder: Set(folder),
             uid: Set(uid),
             message_id: Set(mail.message_id),
             sender_name: Set(mail.sender_name),

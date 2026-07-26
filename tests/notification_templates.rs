@@ -1,8 +1,10 @@
 use meowmail::notifications::{NotificationEvent, render_template};
+use uuid::Uuid;
 
 #[test]
 fn renders_documented_notification_placeholders() {
     let event = NotificationEvent {
+        user_id: Uuid::nil(),
         account: "Work".into(),
         email: "me@example.com".into(),
         sender: "Alice".into(),

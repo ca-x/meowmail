@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +13,8 @@ pub struct NotificationSettings {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotificationEvent {
+    #[serde(skip)]
+    pub user_id: Uuid,
     pub account: String,
     pub email: String,
     pub sender: String,

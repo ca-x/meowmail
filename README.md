@@ -1,48 +1,68 @@
 # 妙邮 / Meowmail
 
-妙邮（Meowmail）是一个自托管、单用户、多邮件账户的 Web 邮件客户端。后端使用 Rust、Axum、SeaORM 与 SQLite，前端使用 React 19 与 Vite。生产构建会把完整 Web 资源嵌入 Rust 可执行文件，运行时无需 Node.js 或独立静态文件服务器。
+妙邮（Meowmail）是一个自托管、多用户、多邮件账户的 Web 邮件客户端。后端使用 Rust、Axum、SeaORM 与 SQLite，前端使用 React 19 与 Vite。生产构建会把完整 Web 资源嵌入 Rust 可执行文件，运行时无需 Node.js 或独立静态文件服务器。
+
+`0.2.0` 是首个正式版本，不包含 `0.1.x` 数据库迁移逻辑。
 
 ## 界面预览
 
-### 登录与桌面工作区
+### PC 端
 
-![妙邮 PIN 登录界面](docs/assets/screenshots/login.png)
+登录：
 
-![妙邮桌面三栏工作区](docs/assets/screenshots/workspace.png)
+![妙邮 PC 登录界面](docs/assets/screenshots/login.png)
 
-### 邮件账户代理与通知
+三栏工作区：
 
-| 每账户 HTTP CONNECT / SOCKS5 代理 | 命令与 HTTP Webhook 通知 |
-| :---: | :---: |
-| ![邮件账户及 SOCKS5 代理设置](docs/assets/screenshots/account-proxy.png) | ![新邮件命令和 HTTP 通知设置](docs/assets/screenshots/notifications.png) |
+![妙邮 PC 三栏工作区](docs/assets/screenshots/workspace.png)
+
+个人资料、主题与安全设置：
+
+![妙邮 PC 设置界面](docs/assets/screenshots/settings.png)
 
 ### 移动端
 
-<p align="center">
-  <img src="docs/assets/screenshots/mobile.png" width="320" alt="妙邮移动端收件箱界面">
-</p>
+<table>
+  <tr>
+    <th>登录</th>
+    <th>收件箱</th>
+    <th>个人设置</th>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screenshots/mobile-login.png" width="240" alt="妙邮移动端登录界面"></td>
+    <td><img src="docs/assets/screenshots/mobile-inbox.png" width="240" alt="妙邮移动端收件箱界面"></td>
+    <td><img src="docs/assets/screenshots/mobile-settings.png" width="240" alt="妙邮移动端设置界面"></td>
+  </tr>
+</table>
 
-## 当前能力
+## 核心能力
 
-- `/login` PIN 登录；部署只需设置一个安全环境变量 `MEOWMAIL_PIN`
-- 多个独立 IMAP / SMTP 邮件账户，可切换默认账户
-- 每个邮件账户可单独选择直连、HTTP CONNECT 或 SOCKS5 代理，并支持代理用户名/密码
-- IMAP TLS / STARTTLS 收件箱同步、邮件搜索与未读/星标/附件筛选
-- SMTP TLS / STARTTLS 发信
-- SQLite 本地索引；邮箱密码与代理密码使用 PIN 派生密钥加密保存
-- 新邮件命令通知和 HTTP POST Webhook
-- 中文 / English 与跟随系统、浅色、深色主题
+- 多用户：管理员与普通用户的邮件账户、邮件、通知设置和清理规则相互隔离
+- 多邮件账户：独立 IMAP / SMTP 配置、默认账户与账户切换
+- 每个邮件账户可独立使用直连、HTTP CONNECT 或 SOCKS5 代理，并支持代理认证
+- 本地账号、OIDC 或混合登录；无管理员时可让首位 OIDC 用户自动成为管理员
+- 可选个人 PIN 应用锁；PIN 只用于登录后的锁定/解锁，不是主登录凭据
+- 用户头像、昵称及个人设置
+- 加密配置导入/导出，可选择资料、邮件账户、通知、邮件保留与清理规则
+- 管理员可选择“仅我的配置”或“所有用户”；普通用户只能操作自己的配置
+- 服务器删除邮件后可保留本地副本；支持按账户、发件人、主题、正文与邮件年龄自动清理
+- 新邮件自定义命令通知和 HTTP POST Webhook，支持 `{account}`、`{sender}`、`{subject}` 等模板
+- 中文 / English，以及跟随系统、浅色、深色主题
 - 桌面三栏、平板双栏和移动端列表/详情布局
-- Docker、GitHub Actions CI 和多平台 Release 自动构建
+- 单文件二进制、Docker amd64/arm64 镜像与自动化发布
 
-当前版本使用邮箱密码或服务商提供的“应用专用密码”登录 IMAP/SMTP，尚未实现 OAuth2。同步范围是每个账户 INBOX 中最近 50 封邮件；它适合作为可运行的首个版本，后续可扩展完整文件夹树、分页同步、附件上传和邮件线程。
+当前邮件服务器认证使用邮箱密码或服务商提供的应用专用密码，尚未实现邮件服务商 OAuth2。同步范围目前是每个账户 INBOX 中最近 50 封邮件。
 
 ## 快速启动
 
 要求：Rust 1.94、Node.js 26.4、npm 12.0.1。
 
+### 本地账号模式
+
 ```bash
-export MEOWMAIL_PIN='请换成至少四个字符的私密 PIN 或口令'
+export MEOWMAIL_AUTH_MODE=local
+export MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME=admin
+export MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD='请换成足够长的随机密码'
 npm --prefix web ci --ignore-scripts
 make dev
 ```
@@ -53,29 +73,40 @@ make dev
 
 ```bash
 make build
-MEOWMAIL_PIN='你的 PIN' ./target/release/meowmail
+MEOWMAIL_AUTH_MODE=local \
+MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME=admin \
+MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD='请换成足够长的随机密码' \
+./target/release/meowmail
 ```
 
-打开 `http://127.0.0.1:8080/login`。程序会在当前工作目录下创建 `data/`：
+打开 `http://127.0.0.1:8080/login`。
 
-```text
-data/
-├── meowmail.sqlite3
-└── vault.salt
+### OIDC 模式
+
+```bash
+export MEOWMAIL_AUTH_MODE=oidc
+export MEOWMAIL_OIDC_ISSUER='https://id.example.com'
+export MEOWMAIL_OIDC_CLIENT_ID='meowmail'
+export MEOWMAIL_OIDC_CLIENT_SECRET='provider-client-secret'
+export MEOWMAIL_OIDC_REDIRECT_URL='https://mail.example.com/api/v1/auth/oidc/callback'
+export MEOWMAIL_OIDC_FIRST_USER_ADMIN=true
+./target/release/meowmail
 ```
 
-`vault.salt` 与当前 `MEOWMAIL_PIN` 一起决定邮箱凭据的解密密钥。更改 PIN 后，原有加密凭据将无法读取；迁移 PIN 前请先重新录入账户或保留旧 PIN。
+OIDC 使用 Authorization Code、PKCE、state 与 nonce，并校验 ID Token 的 issuer、audience、签名和有效期。`MEOWMAIL_OIDC_SCOPES` 默认是 `openid profile email`。混合模式将 `MEOWMAIL_AUTH_MODE` 设置为 `hybrid`，同时配置本地管理员与 OIDC 即可。
+
+如果启用本地登录，首次启动必须同时设置 `MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME` 和 `MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD`。环境变量只负责创建初始管理员，不会覆盖已有用户的密码。
 
 ## Docker
 
-首个正式版本会同时发布 `linux/amd64` 与 `linux/arm64` 镜像：
+正式版本同时发布 `linux/amd64` 与 `linux/arm64` 镜像：
 
 ```bash
-docker pull ghcr.io/ca-x/meowmail:0.1.0
-docker pull czyt/meowmail:0.1.0
+docker pull ghcr.io/ca-x/meowmail:0.2.0
+docker pull czyt/meowmail:0.2.0
 ```
 
-正式 tag 会生成 `v0.1.0`、`0.1.0`、`0.1`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例启动；Docker Hub 镜像的内容与标签相同：
+正式 tag 会生成 `v0.2.0`、`0.2.0`、`0.2`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
 
 ```bash
 docker volume create meowmail-data
@@ -83,28 +114,41 @@ docker run --detach \
   --name meowmail \
   --restart unless-stopped \
   --publish 8080:8080 \
-  --env MEOWMAIL_PIN='请换成私密 PIN 或口令' \
+  --env MEOWMAIL_AUTH_MODE=local \
+  --env MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME=admin \
+  --env MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD='请换成足够长的随机密码' \
   --volume meowmail-data:/data \
-  ghcr.io/ca-x/meowmail:0.1.0
+  ghcr.io/ca-x/meowmail:0.2.0
 ```
 
-本地构建镜像：
+本地构建可把最后一个镜像名换成 `meowmail:local`：
 
 ```bash
 docker build --tag meowmail:local .
-docker volume create meowmail-data
-docker run --detach \
-  --name meowmail \
-  --restart unless-stopped \
-  --publish 8080:8080 \
-  --env MEOWMAIL_PIN='请换成私密 PIN 或口令' \
-  --volume meowmail-data:/data \
-  meowmail:local
 ```
 
-容器以非 root 用户 `10001:10001` 运行，持久数据固定写入 `/data`。建议在 Meowmail 前放置提供 HTTPS 的反向代理；HTTPS 环境下登录 Cookie 会根据 `X-Forwarded-Proto: https` 设置 `Secure`。
+通用 Docker 镜像以非 root 用户 `10001:10001` 运行，持久数据写入 `/data`。建议在 Meowmail 前放置提供 HTTPS 的反向代理；HTTPS 环境下登录 Cookie 会根据 `X-Forwarded-Proto: https` 设置 `Secure`。
 
-## 添加邮件账户
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `MEOWMAIL_BIND` | `0.0.0.0:8080` | 监听地址 |
+| `MEOWMAIL_DATA_DIR` | `data` | SQLite 与凭据密钥目录 |
+| `MEOWMAIL_AUTH_MODE` | `local` | `local`、`oidc` 或 `hybrid` |
+| `MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME` | 无 | 首次创建本地管理员的用户名 |
+| `MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD` | 无 | 首次创建本地管理员的密码，至少 8 个字符 |
+| `MEOWMAIL_VAULT_KEY` | 无 | 可选的固定凭据加密密钥；省略时生成 `vault.key` |
+| `MEOWMAIL_OIDC_ISSUER` | 无 | OIDC issuer，生产环境必须是 HTTPS |
+| `MEOWMAIL_OIDC_CLIENT_ID` | 无 | OIDC Client ID |
+| `MEOWMAIL_OIDC_CLIENT_SECRET` | 无 | OIDC Client Secret；公共客户端可省略 |
+| `MEOWMAIL_OIDC_REDIRECT_URL` | 无 | 完整回调 URL |
+| `MEOWMAIL_OIDC_SCOPES` | `openid profile email` | 空格分隔的 scopes，必须包含 `openid` |
+| `MEOWMAIL_OIDC_FIRST_USER_ADMIN` | `true` | 无管理员时是否把首位 OIDC 用户设为管理员 |
+
+懒猫微服版本会自动使用 `LAZYCAT_AUTH_OIDC_ISSUER_URI`、`LAZYCAT_AUTH_OIDC_CLIENT_ID`、`LAZYCAT_AUTH_OIDC_CLIENT_SECRET` 与 `LAZYCAT_PUBLIC_URL` 作为回退配置，并仅启用 OIDC 登录。
+
+## 邮件账户与代理
 
 界面提供 Gmail、Outlook 和自定义预设。请确认服务商已启用 IMAP/SMTP，并优先使用应用专用密码：
 
@@ -112,19 +156,29 @@ docker run --detach \
 - Outlook：IMAP `outlook.office365.com:993` TLS；SMTP `smtp.office365.com:587` STARTTLS
 - 自定义：只接受 TLS 或 STARTTLS，不会通过明文连接发送凭据
 
-代理设置属于每个邮件账户，可选择：
+每个账户可以选择：
 
 - `direct`：直接连接邮件服务器
 - `http`：通过 HTTP `CONNECT` 建立 TCP 隧道，可选 Basic 代理认证
 - `socks5`：通过 SOCKS5 建立隧道，可选用户名/密码认证
 
-同一账户的 IMAP 和 SMTP 使用同一套代理设置；不同账户互不影响。
+同一邮件账户的 IMAP 与 SMTP 使用同一套代理设置，不同账户互不影响。
+
+## 邮件保留与自动清理
+
+个人设置中可以选择：服务器上不存在的邮件是否继续保留本地副本。自动清理规则可组合以下条件：
+
+- 指定邮件账户
+- 发件人包含文本
+- 主题包含文本
+- 正文包含文本
+- 邮件早于指定天数
+
+规则默认只清理本地数据。只有显式启用“同时从服务器删除”时，Meowmail 才会使用邮件 UID 删除服务器副本。
 
 ## 新邮件通知
 
-在“设置 → 通知”中可同时配置命令和 HTTP 地址。仅新同步写入 SQLite 的邮件触发通知；通知失败不会让邮件同步失败。
-
-支持的模板占位符：
+在“设置 → 通知”中可同时配置命令和 HTTP 地址。仅新同步写入 SQLite 的邮件触发通知；通知失败不会导致邮件同步失败。
 
 | 占位符 | 内容 |
 | --- | --- |
@@ -148,14 +202,9 @@ docker run --detach \
 /usr/bin/notify-send "{account}" "{message}"
 ```
 
-命令安全边界：
+安全边界：可执行文件必须是固定绝对路径且不能包含占位符；参数解析后才替换邮件字段；程序直接执行 argv、不调用 shell；Webhook 必须是固定的 `http://` 或 `https://` 地址，不允许 URL 凭据和模板，也不会跟随重定向。
 
-- 可执行文件必须是固定的绝对路径，且不能包含占位符
-- 模板先解析为参数，再替换邮件字段
-- 程序直接执行 argv，不调用 shell；邮件内容不能增加参数或注入 shell 语法
-- 命令标准输入、输出、错误输出关闭，并有 10 秒超时
-
-Webhook 必须是固定的 `http://` 或 `https://` 地址，不能包含模板或 URL 凭据，也不会跟随重定向。请求方法为 `POST`，JSON 格式如下：
+Webhook 使用 `POST` JSON：
 
 ```json
 {
@@ -169,23 +218,35 @@ Webhook 必须是固定的 `http://` 或 `https://` 地址，不能包含模板�
 }
 ```
 
-命令和 Webhook 都由已登录的部署管理员配置，因此拥有与宿主机集成的能力。不要把 PIN 提供给不可信用户，也不要配置不可信可执行文件或地址。
+## 配置导入与导出
 
-## 安全模型
+归档使用用户提供的口令，经 Argon2id 派生密钥后用 XChaCha20-Poly1305 加密。导出时可以独立选择：
 
-- 单用户应用，没有应用内多用户或角色系统；“多账户”仅指多个邮件账户
-- PIN 不写入 SQLite；凭据使用 Argon2id 派生密钥和 XChaCha20-Poly1305 加密
-- 会话保存在服务端内存，Cookie 为 HttpOnly、SameSite=Strict；重启后需重新登录
+- 资料与头像
+- 邮件账户、代理与邮件凭据
+- 推送设置
+- 邮件保留选项与自动清理规则
+
+管理员默认导出“仅我的配置”，也可以明确选择“所有用户”。全用户归档包含恢复账号所需的角色、密码/PIN 哈希及 OIDC issuer/subject，但不包含明文登录密码、OIDC Token、Client Secret 或会话。普通用户无法创建或导入全用户归档。
+
+## 安全与备份
+
+- 用户密码和 PIN 使用 Argon2id 哈希；邮箱与代理密码使用 XChaCha20-Poly1305 加密
+- 会话保存在服务端内存，Cookie 为 HttpOnly、SameSite=Lax；服务重启后需要重新登录
 - 所有写 API 使用 CSRF token，登录失败有节流限制
 - HTML 邮件在后端清洗后放入 sandboxed iframe，默认阻止远程图片
-- API 有请求体大小限制、通用安全响应头与泛化的外部服务错误
+- API 有请求体大小限制、安全响应头与泛化的外部服务错误
 - SQLite 使用 WAL、外键和 busy timeout
 
-建议通过 HTTPS 暴露服务，限制网络访问范围，并定期更新依赖。不要把 `.env`、数据库、盐文件或真实密码提交到版本库。
+停止容器或进程后备份完整数据目录：
 
-## 备份与恢复
+```text
+data/
+├── meowmail.sqlite3
+└── vault.key       # 未设置 MEOWMAIL_VAULT_KEY 时
+```
 
-停止容器或进程后备份完整 `data/` 目录，并安全保存与之对应的 `MEOWMAIL_PIN`。恢复时把整个目录放回相同位置并使用原 PIN。只备份 SQLite 而遗漏 `vault.salt`，或只保留 salt 而遗失 PIN，都无法解密邮箱凭据。
+如果设置了 `MEOWMAIL_VAULT_KEY`，数据目录中会保存 `vault.salt`，恢复时还必须提供原来的环境变量值。无论采用哪种方式，只备份 SQLite 都不足以恢复邮件账户凭据。
 
 ## 开发与验证
 
@@ -212,11 +273,11 @@ cargo test --locked
 cargo build --release --locked
 ```
 
-推送 `v*` tag 后：
+推送 `v0.2.0` tag 后：
 
-- `.github/workflows/release.yml` 构建 Linux x86_64/aarch64、Windows x86_64、macOS x86_64/aarch64 压缩包，生成 `SHA256SUMS` 并发布到 GitHub Release。每个压缩包包含可执行文件、README、许可证、环境变量示例和 README 使用的界面截图。
-- `.github/workflows/docker.yml` 在原生 amd64/arm64 runner 上构建镜像，附带 provenance 与 SBOM，并同时发布到 `ghcr.io/ca-x/meowmail` 与 `czyt/meowmail`。发布前必须在仓库或组织中配置 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，缺少任一密钥时 workflow 会立即失败，避免出现只发布一个镜像仓库的假成功。
-- Docker 工作流支持手动补发已有版本；运行 workflow 时传入与 `Cargo.toml` 一致的 `release_tag`（例如 `v0.1.0`），它会从该 tag 对应的提交重新构建并发布版本与提交标签。
+- `.github/workflows/release.yml` 构建 Linux x86_64/aarch64、Windows x86_64、macOS x86_64/aarch64 压缩包，生成 `SHA256SUMS` 并发布 GitHub Release。
+- `.github/workflows/docker.yml` 构建 amd64/arm64 镜像，附带 provenance 与 SBOM，并同时发布到 `ghcr.io/ca-x/meowmail` 与 `czyt/meowmail`。
+- Docker 工作流支持用严格的 `refs/tags/<release_tag>` 手动补发已有版本；仓库或组织需要提供 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`。
 
 ## License
 

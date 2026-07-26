@@ -14,8 +14,11 @@ fn pin_configuration_rejects_unsafe_values() {
 fn credential_vault_round_trips_and_rejects_a_different_pin() {
     let directory = tempfile::tempdir().unwrap();
     let salt = directory.path().join("vault.salt");
-    let first = CredentialVault::load(&SecretString::from("first secure pin"), &salt).unwrap();
-    let second = CredentialVault::load(&SecretString::from("different secure pin"), &salt).unwrap();
+    let key = directory.path().join("vault.key");
+    let first_secret = SecretString::from("first secure pin");
+    let second_secret = SecretString::from("different secure pin");
+    let first = CredentialVault::load(Some(&first_secret), &salt, &key).unwrap();
+    let second = CredentialVault::load(Some(&second_secret), &salt, &key).unwrap();
     let encrypted = first.seal("mail-password-123").unwrap();
 
     assert!(!encrypted.contains("mail-password-123"));

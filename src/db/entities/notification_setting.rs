@@ -4,7 +4,7 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "notification_settings")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub singleton: i32,
+    pub user_id: String,
     pub enabled: bool,
     pub message_template: String,
     pub command_template: Option<String>,

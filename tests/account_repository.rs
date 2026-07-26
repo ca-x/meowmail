@@ -5,6 +5,8 @@ use meowmail::{
     },
     config::Config,
     db::entities::mail_account,
+    error::AppError,
+    users::UserRepository,
 };
 use sea_orm::EntityTrait;
 
@@ -16,17 +18,36 @@ async fn multiple_mail_accounts_are_isolated_and_secrets_are_encrypted() {
     )
     .await
     .unwrap();
+    let users = UserRepository::new(state.db.clone());
+    let owner = users
+        .authenticate_local("admin", "a secure local pin")
+        .await
+        .unwrap();
+    let other = users
+        .provision_oidc(
+            "https://issuer.example",
+            "other-user",
+            Some("other@example.com"),
+            Some("other"),
+            false,
+        )
+        .await
+        .unwrap();
     let repository = AccountRepository::new(state.db.clone(), state.vault.clone());
     let first = repository
-        .create(account("Work", "work@example.com", true))
+        .create(owner.id, account("Work", "work@example.com", true))
         .await
         .unwrap();
     let second = repository
-        .create(account("Personal", "me@example.net", false))
+        .create(owner.id, account("Personal", "me@example.net", false))
+        .await
+        .unwrap();
+    repository
+        .create(other.id, account("Other work", "work@example.com", true))
         .await
         .unwrap();
 
-    let accounts = repository.list().await.unwrap();
+    let accounts = repository.list(owner.id).await.unwrap();
     assert_eq!(accounts.len(), 2);
     assert_eq!(
         accounts.iter().filter(|account| account.is_default).count(),
@@ -43,8 +64,14 @@ async fn multiple_mail_accounts_are_isolated_and_secrets_are_encrypted() {
         Some("proxy-secret")
     );
 
-    repository.delete(first.id).await.unwrap();
-    let remaining = repository.get(second.id).await.unwrap();
+    assert!(matches!(
+        repository.get(other.id, first.id).await,
+        Err(AppError::NotFound)
+    ));
+    assert_eq!(repository.list(other.id).await.unwrap().len(), 1);
+
+    repository.delete(owner.id, first.id).await.unwrap();
+    let remaining = repository.get(owner.id, second.id).await.unwrap();
     assert!(remaining.is_default);
 }
 

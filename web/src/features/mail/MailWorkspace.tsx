@@ -6,7 +6,7 @@ import {
 
 import { api } from "../../app/api"
 import { readStoredValue, removeStoredValue, writeStoredValue } from "../../app/storage"
-import type { MailAccount, MessageDetail, MessageSummary } from "../../app/types"
+import type { MailAccount, MessageDetail, MessageSummary, SessionResponse } from "../../app/types"
 import { AccountDialog } from "../accounts/AccountDialog"
 import { SettingsDialog } from "../settings/SettingsDialog"
 import { useI18n } from "../../i18n/I18nProvider"
@@ -19,7 +19,12 @@ import { MessageList } from "./MessageList"
 type Filter = "inbox" | "unread" | "starred" | "attachments"
 type ToastMessage = { key: MessageKey; values?: Record<string, string | number> }
 
-export function MailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
+export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut }: {
+  session: SessionResponse
+  onSessionChanged: (session: SessionResponse) => void
+  onLocked: (session: SessionResponse) => void
+  onLoggedOut: () => void
+}) {
   const { locale, setLocale, t } = useI18n()
   const { resolved, setMode } = useTheme()
   const [accounts, setAccounts] = useState<MailAccount[]>([])
@@ -259,8 +264,10 @@ export function MailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
           <button className="icon-button" type="button" onClick={() => setLocale(locale === "zh-CN" ? "en" : "zh-CN")} aria-label={locale === "zh-CN" ? t("switchToEnglish") : t("switchToChinese")}><Languages size={18} /></button>
           <button className="icon-button" type="button" onClick={() => setMode(resolved === "dark" ? "light" : "dark")} aria-label={resolved === "dark" ? t("switchToLight") : t("switchToDark")}>{resolved === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
           <button className="icon-button notification-button" type="button" onClick={openSettings} aria-label={t("notifications")}><Bell size={18} /></button>
-          <button className="avatar-button" type="button" onClick={() => openAccountDialog(activeAccount)} aria-label={activeAccount ? t("editAccount") : t("addAccount")}>
-            {activeAccount ? activeAccount.displayName.slice(0, 1).toUpperCase() : <CircleUserRound size={20} />}
+          <button className="avatar-button" type="button" onClick={openSettings} aria-label={t("profileAndSettings")}>
+            {session.user.hasAvatar
+              ? <img src={`/api/v1/users/me/avatar?v=${session.user.updatedAt}`} alt="" />
+              : session.user.nickname.slice(0, 1).toUpperCase() || <CircleUserRound size={20} />}
           </button>
         </div>
       </header>
@@ -341,7 +348,16 @@ export function MailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       </div>
 
       {composeDraft !== undefined && <ComposeDialog accounts={accounts} activeAccountId={activeAccountId} draft={composeDraft} onClose={() => setComposeDraft(undefined)} onSent={() => { setComposeDraft(undefined); showToast("sentSuccess") }} />}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onOpenAccounts={() => { setSettingsOpen(false); setAccountDialog(activeAccount || null) }} />}
+      {settingsOpen && (
+        <SettingsDialog
+          session={session}
+          accounts={accounts}
+          onSessionChanged={onSessionChanged}
+          onLocked={onLocked}
+          onClose={() => setSettingsOpen(false)}
+          onOpenAccounts={() => { setSettingsOpen(false); setAccountDialog(activeAccount || null) }}
+        />
+      )}
       {accountDialog !== undefined && (
         <AccountDialog
           account={accountDialog}

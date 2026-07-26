@@ -131,7 +131,10 @@ jobs:
           trap cleanup EXIT
           (
             cd "$run_dir"
-            MEOWMAIL_PIN=ci-meowmail-pin exec "$binary" >"$log_file" 2>&1
+            MEOWMAIL_AUTH_MODE=local \
+            MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME=admin \
+            MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD=ci-meowmail-password \
+            exec "$binary" >"$log_file" 2>&1
           ) &
           server_pid=$!
           for _ in $(seq 1 40); do
