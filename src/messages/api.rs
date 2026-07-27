@@ -695,6 +695,8 @@ async fn run_automatic_actions(
                 subject,
                 text_body: body,
                 html_body: None,
+                signature_id: None,
+                apply_signature: true,
             },
             ThreadingHeaders {
                 automatic: Some(AutomaticMessageKind::Forward),
@@ -733,6 +735,8 @@ async fn run_automatic_actions(
                 subject: prefixed_subject(preferences.reply_prefix(), &mail.subject),
                 text_body: body,
                 html_body: None,
+                signature_id: None,
+                apply_signature: true,
             },
             ThreadingHeaders {
                 in_reply_to: mail.message_id.clone(),

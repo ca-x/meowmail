@@ -1,16 +1,16 @@
-import { useImperativeAlertDialog } from "@astryxdesign/core/AlertDialog"
 import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { Card } from "@astryxdesign/core/Card"
 import { IconButton } from "@astryxdesign/core/IconButton"
 import { Switch } from "@astryxdesign/core/Switch"
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react"
-import { useRef, useState, type FormEvent } from "react"
+import { useState, type FormEvent } from "react"
 
 import { api } from "../../app/api"
 import type { CleanupRule, CleanupRuleInput, MailAccount, RuleCondition } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import type { MessageKey } from "../../i18n/messages"
+import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
 import { ReceiveRuleForm } from "./ReceiveRuleForm"
 import { emptyRule, ruleSummary, toRuleInput, type RuleDraft } from "./receiveRuleUtils"
 
@@ -21,10 +21,9 @@ export function ReceiveRulesEditor({ rules, accounts, onRulesChanged, onNotice }
   onNotice: (key: MessageKey, error?: boolean) => void
 }) {
   const { t } = useI18n()
-  const deleteAlert = useImperativeAlertDialog()
+  const deleteDialog = useImperativeConfirmDialog()
   const [draft, setDraft] = useState<RuleDraft | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const deletePending = useRef(false)
 
   function edit(rule?: CleanupRule) {
     setDraft(rule ? {
@@ -72,31 +71,26 @@ export function ReceiveRulesEditor({ rules, accounts, onRulesChanged, onNotice }
     }
   }
 
-  function requestRemove(rule: CleanupRule) {
-    deleteAlert.show({
+  async function requestRemove(rule: CleanupRule) {
+    const confirmed = await deleteDialog.confirm({
       title: t("deleteRuleTitle"),
       description: t("deleteRuleDescription", { rule: rule.name }),
       cancelLabel: t("cancel"),
       actionLabel: t("delete"),
       actionVariant: "destructive",
-      onAction: async () => {
-        if (deletePending.current) return
-        deletePending.current = true
-        deleteAlert.hide()
-        setBusy(rule.id)
-        try {
-          await api.deleteCleanupRule(rule.id)
-          onRulesChanged(rules.filter((item) => item.id !== rule.id))
-          if (draft?.id === rule.id) setDraft(null)
-          onNotice("cleanupRuleDeleted")
-        } catch {
-          onNotice("genericError", true)
-        } finally {
-          setBusy(null)
-          deletePending.current = false
-        }
-      },
     })
+    if (!confirmed) return
+    setBusy(rule.id)
+    try {
+      await api.deleteCleanupRule(rule.id)
+      onRulesChanged(rules.filter((item) => item.id !== rule.id))
+      if (draft?.id === rule.id) setDraft(null)
+      onNotice("cleanupRuleDeleted")
+    } catch {
+      onNotice("genericError", true)
+    } finally {
+      setBusy(null)
+    }
   }
 
   async function move(index: number, direction: -1 | 1) {
@@ -153,7 +147,7 @@ export function ReceiveRulesEditor({ rules, accounts, onRulesChanged, onNotice }
               <IconButton label={t("moveRuleDown")} icon={<ArrowDown aria-hidden="true" />} variant="ghost" size="sm" isDisabled={Boolean(busy) || index === rules.length - 1} onClick={() => void move(index, 1)} />
             </div>
             <IconButton label={t("edit")} icon={<Pencil aria-hidden="true" />} variant="ghost" size="sm" isDisabled={Boolean(busy)} onClick={() => edit(rule)} />
-            <IconButton label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="ghost" size="sm" isDisabled={Boolean(busy)} onClick={() => requestRemove(rule)} />
+            <IconButton label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="ghost" size="sm" isDisabled={Boolean(busy)} onClick={() => void requestRemove(rule)} />
           </div>
         ))}
       </Card>
@@ -169,7 +163,7 @@ export function ReceiveRulesEditor({ rules, accounts, onRulesChanged, onNotice }
           onSubmit={save}
         />
       )}
-      {deleteAlert.element}
+      {deleteDialog.element}
     </div>
   )
 }

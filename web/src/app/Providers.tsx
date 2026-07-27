@@ -25,7 +25,7 @@ function AstryxRuntime({ children }: { children: ReactNode }) {
   return (
     <Theme theme={astryxThemes[themeName]} mode={resolved}>
       <InternationalizationProvider locale={locale} overrides={astryxOverrides}>
-        <LayerProvider toast={{ position: "bottomEnd", maxVisible: 3 }}>
+        <LayerProvider toast={{ position: "topEnd", maxVisible: 3 }}>
           {children}
         </LayerProvider>
       </InternationalizationProvider>

@@ -2,9 +2,10 @@ import { Avatar } from "@astryxdesign/core/Avatar"
 import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { FileInput } from "@astryxdesign/core/FileInput"
+import { IconButton } from "@astryxdesign/core/IconButton"
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl"
 import { TextInput } from "@astryxdesign/core/TextInput"
-import { Languages, Mail, Moon, Save, Sun, UserRound } from "lucide-react"
+import { Languages, Mail, Moon, Pencil, Save, Sun, UserRound, X } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
 
 import { ApiError, api } from "../../app/api"
@@ -28,6 +29,7 @@ export function GeneralSettingsPanel({ session, accounts, onSessionChanged, onOp
   const [user, setUser] = useState(session.user)
   const [username, setUsername] = useState(session.user.username)
   const [nickname, setNickname] = useState(session.user.nickname)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [busy, setBusy] = useState<"profile" | "avatar" | null>(null)
   const themeLabels: Record<AstryxThemeName, string> = {
     neutral: t("themeNeutral"),
@@ -43,6 +45,7 @@ export function GeneralSettingsPanel({ session, accounts, onSessionChanged, onOp
     setUser(session.user)
     setUsername(session.user.username)
     setNickname(session.user.nickname)
+    setIsEditingProfile(false)
   }, [session.user])
   const themeDescriptions: Record<AstryxThemeName, string> = {
     neutral: t("themeNeutralDescription"),
@@ -66,6 +69,7 @@ export function GeneralSettingsPanel({ session, accounts, onSessionChanged, onOp
     setBusy("profile")
     try {
       publishUser(await api.updateProfile(username === user.username ? null : username, nickname))
+      setIsEditingProfile(false)
       onNotice({ key: "profileSaved" })
     } catch (error) {
       const key = error instanceof ApiError && error.status === 409
@@ -104,56 +108,82 @@ export function GeneralSettingsPanel({ session, accounts, onSessionChanged, onOp
     }
   }
 
+  function cancelProfileEdit() {
+    setUsername(user.username)
+    setNickname(user.nickname)
+    setIsEditingProfile(false)
+  }
+
   return (
     <div className="settings-panel-stack">
       <SettingsPanelHeading icon={<UserRound />} title={t("profile")} description={t("profileDescription")} />
       <section className="settings-profile-block" aria-label={t("profile")}>
-        <div className="settings-profile-summary">
-          <Avatar
-            size={64}
-            name={user.nickname}
-            src={user.hasAvatar ? `/api/v1/users/me/avatar?v=${user.updatedAt}` : undefined}
-          />
-          <div>
-            <strong>{user.nickname}</strong>
-            <span>@{user.username}</span>
-            <Badge variant={user.role === "admin" ? "blue" : "neutral"} label={user.role === "admin" ? t("administrator") : t("standardUser")} />
-          </div>
-        </div>
-        <div className="settings-avatar-actions">
-          <FileInput
-            label={t("changeAvatar")}
-            value={null}
-            onChange={(file) => void updateAvatar(file)}
-            accept="image/png,image/jpeg,image/webp"
-            maxSize={512 * 1024}
-            isLoading={busy === "avatar"}
-            isDisabled={busy === "avatar"}
-            placeholder={t("changeAvatar")}
-            width="100%"
-          />
-          {user.hasAvatar && <Button label={t("remove")} variant="ghost" isDisabled={busy === "avatar"} onClick={() => void removeAvatar()} />}
-        </div>
-        <form className="settings-profile-form" onSubmit={saveProfile}>
-          <div className="settings-profile-fields">
-            <TextInput
-              label={t("profileUsername")}
-              value={username}
-              onChange={setUsername}
-              placeholder={t("profileUsernamePlaceholder")}
-              description={t("usernameRequirements")}
-              width="100%"
+        <div className="settings-profile-view">
+          <div className="settings-profile-summary">
+            <Avatar
+              size={64}
+              name={user.nickname}
+              src={user.hasAvatar ? `/api/v1/users/me/avatar?v=${user.updatedAt}` : undefined}
             />
-            <TextInput
-              label={t("nickname")}
-              value={nickname}
-              onChange={setNickname}
-              placeholder={t("nicknamePlaceholder")}
-              width="100%"
-            />
+            <div>
+              <strong>{user.nickname}</strong>
+              <span>@{user.username}</span>
+              <Badge variant={user.role === "admin" ? "blue" : "neutral"} label={user.role === "admin" ? t("administrator") : t("standardUser")} />
+            </div>
           </div>
-          <Button label={t("save")} icon={<Save aria-hidden="true" />} type="submit" variant="secondary" isLoading={busy === "profile"} isDisabled={username.trim().length < 2 || !nickname.trim() || busy === "profile"} />
-        </form>
+          <IconButton
+            label={t("edit")}
+            icon={<Pencil aria-hidden="true" />}
+            variant="ghost"
+            onClick={() => setIsEditingProfile(true)}
+          />
+        </div>
+        {isEditingProfile && (
+          <form className="settings-profile-form" onSubmit={saveProfile}>
+            <div className="settings-avatar-actions">
+              <FileInput
+                label={t("changeAvatar")}
+                value={null}
+                onChange={(file) => void updateAvatar(file)}
+                accept="image/png,image/jpeg,image/webp"
+                maxSize={512 * 1024}
+                isLoading={busy === "avatar"}
+                isDisabled={busy === "avatar"}
+                placeholder={t("changeAvatar")}
+                width="100%"
+              />
+              {user.hasAvatar && <Button label={t("remove")} variant="ghost" isDisabled={busy === "avatar"} onClick={() => void removeAvatar()} />}
+            </div>
+            <div className="settings-profile-fields">
+              <TextInput
+                label={t("profileUsername")}
+                value={username}
+                onChange={setUsername}
+                placeholder={t("profileUsernamePlaceholder")}
+                description={t("usernameRequirements")}
+                width="100%"
+              />
+              <TextInput
+                label={t("nickname")}
+                value={nickname}
+                onChange={setNickname}
+                placeholder={t("nicknamePlaceholder")}
+                width="100%"
+              />
+            </div>
+            <div className="settings-profile-actions">
+              <Button label={t("cancel")} icon={<X aria-hidden="true" />} variant="ghost" isDisabled={busy === "profile"} onClick={cancelProfileEdit} />
+              <Button
+                label={t("save")}
+                icon={<Save aria-hidden="true" />}
+                type="submit"
+                variant="secondary"
+                isLoading={busy === "profile"}
+                isDisabled={username.trim().length < 2 || !nickname.trim() || busy === "profile"}
+              />
+            </div>
+          </form>
+        )}
       </section>
 
       <div className="settings-subsection-divider" />

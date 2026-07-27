@@ -5,7 +5,7 @@ import { IconButton } from "@astryxdesign/core/IconButton"
 import { Item } from "@astryxdesign/core/Item"
 import { List } from "@astryxdesign/core/List"
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl"
-import { Spinner } from "@astryxdesign/core/Spinner"
+import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { Toolbar } from "@astryxdesign/core/Toolbar"
 import { ArrowLeft, CornerUpLeft, Download, Eye, FileText, Forward, MailOpen, ShieldCheck, Star, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
@@ -40,7 +40,7 @@ export function MessageDetail({ message, thread, loading, isDeleting = false, pr
     setPreviewAttachment(null)
   }, [message?.id, preferences.plainTextReading])
 
-  if (loading) return <div className="detail-loading"><Spinner size="xl" label={t("loading")} /></div>
+  if (loading) return <MessageDetailSkeleton label={t("loading")} />
   if (!message) {
     return (
       <div className="detail-empty">
@@ -159,6 +159,34 @@ export function MessageDetail({ message, thread, loading, isDeleting = false, pr
       </div>
       <AttachmentPreviewDialog isOpen={Boolean(previewAttachment)} messageId={message.id} attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
     </article>
+  )
+}
+
+function MessageDetailSkeleton({ label }: { label: string }) {
+  return (
+    <div className="detail-loading detail-loading-skeleton" role="status" aria-label={label}>
+      <div className="detail-skeleton-toolbar">
+        <Skeleton width={36} height={36} radius={3} index={0} />
+        <Skeleton width={36} height={36} radius={3} index={1} />
+        <Skeleton width={36} height={36} radius={3} index={2} />
+      </div>
+      <div className="detail-skeleton-content">
+        <Skeleton width="68%" height={30} radius={2} index={0} />
+        <div className="detail-skeleton-sender">
+          <Skeleton width={44} height={44} radius="rounded" index={1} />
+          <div>
+            <Skeleton width="42%" height={13} index={2} />
+            <Skeleton width="58%" height={11} index={3} />
+          </div>
+        </div>
+        <div className="detail-skeleton-body">
+          <Skeleton width="100%" height={16} index={4} />
+          <Skeleton width="94%" height={16} index={5} />
+          <Skeleton width="97%" height={16} index={6} />
+          <Skeleton width="72%" height={16} index={7} />
+        </div>
+      </div>
+    </div>
   )
 }
 

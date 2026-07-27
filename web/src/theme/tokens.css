@@ -13,8 +13,9 @@
   --bg-pressed: var(--color-overlay-pressed);
   --bg-selected: var(--color-accent-muted);
   --text-primary: var(--color-text-primary);
-  --text-secondary: var(--color-text-secondary);
-  --text-tertiary: var(--color-text-disabled);
+  --text-secondary: color-mix(in srgb, var(--color-text-primary) 72%, var(--color-text-secondary));
+  --text-tertiary: color-mix(in srgb, var(--color-text-primary) 56%, var(--color-text-secondary));
+  --text-disabled: var(--color-text-disabled);
   --text-on-accent: var(--color-on-accent);
   --border: var(--color-border);
   --border-strong: var(--color-border-emphasized);
@@ -44,6 +45,22 @@
 
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
+
+:root[data-astryx-theme],
+[data-astryx-theme] {
+  --color-text-secondary: color-mix(in srgb, var(--color-text-primary) 86%, var(--color-background-surface));
+  --color-icon-secondary: color-mix(in srgb, var(--color-text-primary) 86%, var(--color-background-surface));
+  --color-text-disabled: color-mix(in srgb, var(--color-text-primary) 52%, var(--color-background-surface));
+  --color-icon-disabled: color-mix(in srgb, var(--color-text-primary) 52%, var(--color-background-surface));
+}
+
+:root[data-astryx-theme][data-theme="dark"],
+[data-astryx-theme][data-theme="dark"] {
+  --color-text-secondary: color-mix(in srgb, var(--color-text-primary) 84%, var(--color-background-surface));
+  --color-icon-secondary: color-mix(in srgb, var(--color-text-primary) 84%, var(--color-background-surface));
+  --color-text-disabled: color-mix(in srgb, var(--color-text-primary) 44%, var(--color-background-surface));
+  --color-icon-disabled: color-mix(in srgb, var(--color-text-primary) 44%, var(--color-background-surface));
+}
 
 @media (prefers-contrast: more) {
   :root {

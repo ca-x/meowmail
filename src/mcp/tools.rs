@@ -309,9 +309,12 @@ async fn create_draft(
                 subject: input.subject,
                 text_body: input.text_body,
                 html_body: None,
+                signature_id: None,
+                apply_signature: true,
             },
             None,
             ThreadingHeaders::default(),
+            None,
         )
         .await?;
     Ok(draft_summary(&draft))
@@ -379,9 +382,12 @@ async fn create_reply_draft(
                 subject,
                 text_body,
                 html_body: None,
+                signature_id: None,
+                apply_signature: true,
             },
             Some(input.message_id),
             threading,
+            None,
         )
         .await?;
     Ok(draft_summary(&draft))

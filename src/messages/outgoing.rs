@@ -23,6 +23,10 @@ pub struct ComposeInput {
     pub text_body: String,
     #[serde(default)]
     pub html_body: Option<String>,
+    #[serde(default)]
+    pub signature_id: Option<Uuid>,
+    #[serde(default = "default_apply_signature")]
+    pub apply_signature: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -49,7 +53,17 @@ impl AutomaticMessageKind {
 
 impl ComposeInput {
     pub fn validate(&mut self) -> Result<(), AppError> {
-        if self.to.is_empty() || self.to.len() + self.cc.len() + self.bcc.len() > 100 {
+        self.validate_inner(true)
+    }
+
+    pub fn validate_draft(&mut self) -> Result<(), AppError> {
+        self.validate_inner(false)
+    }
+
+    fn validate_inner(&mut self, require_recipient: bool) -> Result<(), AppError> {
+        if (require_recipient && self.to.is_empty())
+            || self.to.len() + self.cc.len() + self.bcc.len() > 100
+        {
             return Err(AppError::Validation("recipient count is invalid".into()));
         }
         for address in self.to.iter_mut().chain(&mut self.cc).chain(&mut self.bcc) {
@@ -89,12 +103,20 @@ pub async fn send_outgoing(
     input.validate()?;
     let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
     let (account, secrets, proxy) = accounts.get_with_secrets(user_id, input.account_id).await?;
-    let signature_id = account.signature_id.map(|value| value.to_string());
+    let signature_id = input
+        .signature_id
+        .or(account.signature_id)
+        .filter(|_| input.apply_signature)
+        .map(|value| value.to_string());
     let signature = PreferencesRepository::new(state.db.clone())
         .signature_text(user_id, signature_id.as_deref())
         .await?;
     if let Some(signature) = signature.as_deref().filter(|value| !value.is_empty()) {
         input.text_body = append_signature(&input.text_body, signature);
+        input.html_body = input
+            .html_body
+            .take()
+            .map(|html| append_html_signature(&sanitize_html(&html), signature));
     }
     let mut builder = MessageBuilder::new()
         .from((account.display_name.clone(), account.email.clone()))
@@ -139,6 +161,10 @@ pub async fn send_outgoing(
     .map_err(|error| AppError::Mail(error.to_string()))
 }
 
+fn default_apply_signature() -> bool {
+    true
+}
+
 fn add_automatic_headers(
     builder: MessageBuilder<'_>,
     automatic: AutomaticMessageKind,
@@ -165,6 +191,24 @@ fn append_signature(body: &str, signature: &str) -> String {
     } else {
         format!("{}\n\n-- \n{}", body.trim_end(), signature.trim())
     }
+}
+
+fn append_html_signature(body: &str, signature: &str) -> String {
+    let signature = signature.trim();
+    if signature.is_empty() {
+        return body.to_owned();
+    }
+    let escaped = escape_html(signature).replace('\n', "<br>");
+    format!(
+        "{body}<div style=\"margin-top:24px;color:inherit\"><div style=\"font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:inherit\">-- </div><div>{escaped}</div></div>"
+    )
+}
+
+fn sanitize_html(value: &str) -> String {
+    ammonia::Builder::default()
+        .add_generic_attributes(["align", "class", "height", "style", "width"])
+        .clean(value)
+        .to_string()
 }
 
 fn styled_html_body(body: &str, family: ComposeFontFamily, size: u8, color: &str) -> String {

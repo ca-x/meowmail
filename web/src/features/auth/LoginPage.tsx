@@ -39,8 +39,6 @@ export function LoginPage({ config, onAuthenticated }: {
 
   return (
     <main className="login-page">
-      <div className="login-orb login-orb-one" aria-hidden="true" />
-      <div className="login-orb login-orb-two" aria-hidden="true" />
       <header className="login-utility">
         <Button
           label={locale === "zh-CN" ? t("switchToEnglish") : t("switchToChinese")}

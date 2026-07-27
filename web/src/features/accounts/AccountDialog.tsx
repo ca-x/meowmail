@@ -1,16 +1,16 @@
-import { useImperativeAlertDialog } from "@astryxdesign/core/AlertDialog"
 import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
 import { MailPlus, Server, Trash2 } from "lucide-react"
-import { useEffect, useRef, useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 
 import { api } from "../../app/api"
 import type { AccountInput, MailAccount } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import type { MessageKey } from "../../i18n/messages"
+import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
 import { AccountIdentityFields, AccountProxySettings, AccountServerSettings } from "./AccountFormFields"
 
 interface Props {
@@ -84,11 +84,10 @@ function fromAccount(account: MailAccount): AccountInput {
 
 export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDeleted }: Props) {
   const { t } = useI18n()
-  const deleteAlert = useImperativeAlertDialog()
+  const deleteDialog = useImperativeConfirmDialog()
   const [input, setInput] = useState<AccountInput>(() => account ? fromAccount(account) : emptyInput())
   const [busy, setBusy] = useState<"save" | "test" | "delete" | null>(null)
   const [message, setMessage] = useState<MessageKey | null>(null)
-  const deletePending = useRef(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -145,30 +144,24 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
     }
   }
 
-  function requestDelete() {
+  async function requestDelete() {
     if (!account) return
-    deleteAlert.show({
+    const confirmed = await deleteDialog.confirm({
       title: t("deleteAccountConfirm", { account: account.displayName }),
       description: account.email,
       cancelLabel: t("cancel"),
       actionLabel: t("delete"),
       actionVariant: "destructive",
-      onAction: async () => {
-        if (deletePending.current) return
-        deletePending.current = true
-        deleteAlert.hide()
-        setBusy("delete")
-        try {
-          await api.deleteAccount(account.id)
-          onDeleted()
-        } catch {
-          setMessage("genericError")
-          setBusy(null)
-        } finally {
-          deletePending.current = false
-        }
-      },
     })
+    if (!confirmed) return
+    setBusy("delete")
+    try {
+      await api.deleteAccount(account.id)
+      onDeleted()
+    } catch {
+      setMessage("genericError")
+      setBusy(null)
+    }
   }
 
   const isBusy = Boolean(busy)
@@ -234,7 +227,7 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
             footer={
               <LayoutFooter className="account-dialog-footer" padding={3} hasDivider>
                 <span>
-                  {account && <Button label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="destructive" isDisabled={isBusy} onClick={requestDelete} />}
+                  {account && <Button label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="destructive" isDisabled={isBusy} onClick={() => void requestDelete()} />}
                 </span>
                 <span className="account-dialog-actions">
                   <Button label={busy === "test" ? t("testing") : t("testConnection")} variant="secondary" size="lg" isLoading={busy === "test"} isDisabled={isBusy || !isComplete} onClick={() => void testConnection()} />
@@ -245,7 +238,7 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
           />
         </form>
       </Dialog>
-      {deleteAlert.element}
+      {deleteDialog.element}
     </>
   )
 }

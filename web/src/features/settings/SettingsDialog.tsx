@@ -1,10 +1,10 @@
-import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
 import { Tab, TabList } from "@astryxdesign/core/TabList"
+import { useToast } from "@astryxdesign/core/Toast"
 import { Bot, Database, MailOpen, Settings2, ShieldCheck, SlidersHorizontal } from "lucide-react"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 
 import type { MailAccount, MailPreferences, SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
@@ -37,9 +37,20 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
   onOpenAccounts: () => void
 }) {
   const { t } = useI18n()
+  const showToast = useToast()
   const [activeTab, setActiveTab] = useState<SettingsTab>("general")
   const [visitedTabs, setVisitedTabs] = useState<Set<SettingsTab>>(() => new Set(["general"]))
-  const [notice, setNotice] = useState<SettingsNotice | null>(null)
+
+  const showNotice = useCallback((notice: SettingsNotice) => {
+    showToast({
+      body: <SettingsNoticeBody notice={notice} />,
+      type: notice.error ? "error" : "info",
+      uniqueID: `settings-${notice.key}`,
+      collisionBehavior: "overwrite",
+      isAutoHide: !notice.error,
+      autoHideDuration: 4_000,
+    })
+  }, [showToast])
 
   function selectTab(tab: SettingsTab) {
     setActiveTab(tab)
@@ -96,11 +107,11 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
         }
         content={
           <LayoutContent className="settings-dialog-content" padding={0} isScrollable>
-            {visitedTabs.has("general") && <SettingsPanel tab="general" activeTab={activeTab}><GeneralSettingsPanel session={session} accounts={accounts} onSessionChanged={onSessionChanged} onOpenAccounts={onOpenAccounts} onNotice={setNotice} /></SettingsPanel>}
-            {visitedTabs.has("mail") && <SettingsPanel tab="mail" activeTab={activeTab}><MailSettingsPanel accounts={accounts} mailPreferences={mailPreferences} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={setNotice} /></SettingsPanel>}
-            {visitedTabs.has("automation") && <SettingsPanel tab="automation" activeTab={activeTab}><AutomationSettingsPanel accounts={accounts} onNotice={setNotice} /></SettingsPanel>}
-            {visitedTabs.has("security") && <SettingsPanel tab="security" activeTab={activeTab}><SecuritySettingsPanel isOpen={isOpen} session={session} onSessionChanged={onSessionChanged} onLocked={onLocked} onLoggedOut={onLoggedOut} onClose={onClose} onNotice={setNotice} /></SettingsPanel>}
-            {visitedTabs.has("data") && <SettingsPanel tab="data" activeTab={activeTab}><DataSettingsPanel session={session} onSessionChanged={onSessionChanged} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={setNotice} /></SettingsPanel>}
+            {visitedTabs.has("general") && <SettingsPanel tab="general" activeTab={activeTab}><GeneralSettingsPanel session={session} accounts={accounts} onSessionChanged={onSessionChanged} onOpenAccounts={onOpenAccounts} onNotice={showNotice} /></SettingsPanel>}
+            {visitedTabs.has("mail") && <SettingsPanel tab="mail" activeTab={activeTab}><MailSettingsPanel accounts={accounts} mailPreferences={mailPreferences} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={showNotice} /></SettingsPanel>}
+            {visitedTabs.has("automation") && <SettingsPanel tab="automation" activeTab={activeTab}><AutomationSettingsPanel accounts={accounts} onNotice={showNotice} /></SettingsPanel>}
+            {visitedTabs.has("security") && <SettingsPanel tab="security" activeTab={activeTab}><SecuritySettingsPanel isOpen={isOpen} session={session} onSessionChanged={onSessionChanged} onLocked={onLocked} onLoggedOut={onLoggedOut} onClose={onClose} onNotice={showNotice} /></SettingsPanel>}
+            {visitedTabs.has("data") && <SettingsPanel tab="data" activeTab={activeTab}><DataSettingsPanel session={session} onSessionChanged={onSessionChanged} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={showNotice} /></SettingsPanel>}
           </LayoutContent>
         }
         footer={
@@ -110,18 +121,13 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
           </LayoutFooter>
         }
       />
-      {notice && (
-        <div className="settings-dialog-notice">
-          <Banner
-            status={notice.error ? "error" : "success"}
-            title={t(notice.key, notice.values)}
-            isDismissable
-            onDismiss={() => setNotice(null)}
-          />
-        </div>
-      )}
     </Dialog>
   )
+}
+
+function SettingsNoticeBody({ notice }: { notice: SettingsNotice }) {
+  const { t } = useI18n()
+  return <>{t(notice.key, notice.values)}</>
 }
 
 function SettingsPanel({ tab, activeTab, children }: {

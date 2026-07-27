@@ -3,6 +3,11 @@ import type {
   AuthConfig,
   CleanupRule,
   CleanupRuleInput,
+  ComposeMessageInput,
+  Contact,
+  ContactInput,
+  DraftInput,
+  EmailDraft,
   ImportReport,
   MailAccount,
   MailPreferences,
@@ -141,14 +146,28 @@ export const api = {
       body: JSON.stringify(update),
     }),
   deleteMessage: (id: string) => request<void>(`/api/v1/messages/${id}`, { method: "DELETE" }),
-  sendMessage: (input: {
-    accountId: string
-    to: string[]
-    cc: string[]
-    bcc: string[]
-    subject: string
-    textBody: string
-  }) => request<void>("/api/v1/messages/send", { method: "POST", body: JSON.stringify(input) }),
+  sendMessage: (input: ComposeMessageInput) =>
+    request<void>("/api/v1/messages/send", { method: "POST", body: JSON.stringify(input) }),
+  contacts: (params = new URLSearchParams({ limit: "100" })) =>
+    request<Contact[]>(`/api/v1/contacts?${params.toString()}`),
+  createContact: (input: ContactInput) =>
+    request<Contact>("/api/v1/contacts", { method: "POST", body: JSON.stringify(input) }),
+  updateContact: (id: string, input: ContactInput) =>
+    request<Contact>(`/api/v1/contacts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteContact: (id: string) => request<void>(`/api/v1/contacts/${id}`, { method: "DELETE" }),
+  drafts: () => request<EmailDraft[]>("/api/v1/drafts"),
+  createDraft: (input: DraftInput) =>
+    request<EmailDraft>("/api/v1/drafts", { method: "POST", body: JSON.stringify(input) }),
+  updateDraft: (id: string, input: DraftInput) =>
+    request<EmailDraft>(`/api/v1/drafts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteDraft: (id: string) => request<void>(`/api/v1/drafts/${id}`, { method: "DELETE" }),
+  sendDraft: (id: string) => request<void>(`/api/v1/drafts/${id}/send`, { method: "POST" }),
   notificationSettings: () =>
     request<NotificationSettings>("/api/v1/notifications/settings"),
   updateNotificationSettings: (settings: NotificationSettings) =>

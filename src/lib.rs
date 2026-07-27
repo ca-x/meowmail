@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod auth;
 pub mod cleanup;
 pub mod config;
+pub mod contacts;
 pub mod db;
 pub mod error;
 pub mod mail;
@@ -82,7 +83,7 @@ impl AppState {
             None => None,
         };
         let notifications = NotificationRunner::new(db.clone());
-        Ok(Self {
+        let state = Self {
             config: Arc::new(config),
             db,
             vault,
@@ -92,7 +93,9 @@ impl AppState {
             mcp_limits: McpRateLimiter::default(),
             mailbox_locks: MailboxLocks::default(),
             password_locks: MailboxLocks::default(),
-        })
+        };
+        messages::spawn_scheduled_draft_runner(state.clone());
+        Ok(state)
     }
 }
 
@@ -101,8 +104,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(health))
         .merge(auth::routes())
         .merge(cleanup::routes())
+        .merge(contacts::routes())
         .merge(accounts::routes())
         .merge(messages::routes())
+        .merge(messages::draft_routes())
         .merge(mcp::routes())
         .merge(notifications::routes())
         .merge(preferences::routes())

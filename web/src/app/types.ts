@@ -155,6 +155,58 @@ export interface Signature extends SignatureInput {
   updatedAt: number
 }
 
+export interface ContactInput {
+  displayName: string
+  email: string
+  notes?: string
+}
+
+export interface Contact {
+  id: string
+  displayName: string
+  email: string
+  notes: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type EmailDraftStatus = "draft" | "sending" | "ambiguous" | "sent"
+
+export interface EmailDraft {
+  id: string
+  accountId: string
+  replyToMessageId?: string | null
+  to: string[]
+  cc: string[]
+  bcc: string[]
+  subject: string
+  textBody: string
+  htmlBody?: string | null
+  signatureId?: string | null
+  applySignature: boolean
+  scheduledAt?: number | null
+  lastError?: string | null
+  status: EmailDraftStatus
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ComposeMessageInput {
+  accountId: string
+  to: string[]
+  cc: string[]
+  bcc: string[]
+  subject: string
+  textBody: string
+  htmlBody?: string | null
+  signatureId?: string | null
+  applySignature?: boolean
+}
+
+export interface DraftInput extends ComposeMessageInput {
+  scheduledAt?: number | null
+}
+
 export interface McpSettings {
   hasToken: boolean
   allowDelete: boolean

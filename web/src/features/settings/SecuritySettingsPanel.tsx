@@ -8,6 +8,7 @@ import { useEffect, useState, type FormEvent } from "react"
 import { api } from "../../app/api"
 import type { McpSettings, PublicUser, SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
+import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
 import { SettingsPanelHeading } from "./SettingsPanelHeading"
 import type { SettingsNotice } from "./settingsTypes"
 
@@ -27,6 +28,7 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
   onNotice: (notice: SettingsNotice) => void
 }) {
   const { locale, t } = useI18n()
+  const confirmDialog = useImperativeConfirmDialog()
   const [user, setUser] = useState(session.user)
   const [pin, setPin] = useState("")
   const [currentPassword, setCurrentPassword] = useState("")
@@ -118,7 +120,16 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
   }
 
   async function generateMcpToken() {
-    if (mcpSettings.hasToken && !confirm(t("mcpRotateConfirm"))) return
+    if (mcpSettings.hasToken) {
+      const confirmed = await confirmDialog.confirm({
+        title: t("mcpRegenerate"),
+        description: t("mcpRotateConfirm"),
+        cancelLabel: t("cancel"),
+        actionLabel: t("mcpRegenerate"),
+        actionVariant: "destructive",
+      })
+      if (!confirmed) return
+    }
     setBusy("mcp")
     try {
       const generated = await api.generateMcpToken()
@@ -149,7 +160,14 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
   }
 
   async function revokeMcpToken() {
-    if (!confirm(t("mcpRevokeConfirm"))) return
+    const confirmed = await confirmDialog.confirm({
+      title: t("mcpRevoke"),
+      description: t("mcpRevokeConfirm"),
+      cancelLabel: t("cancel"),
+      actionLabel: t("mcpRevoke"),
+      actionVariant: "destructive",
+    })
+    if (!confirmed) return
     setBusy("mcp")
     try {
       await api.revokeMcpToken()
@@ -174,6 +192,7 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
   }
 
   return (
+    <>
     <div className="settings-panel-stack">
       <SettingsPanelHeading icon={<KeyRound />} title={t("loginPasswordSettings")} description={t("loginPasswordSettingsDescription")} />
       <section className="settings-security-block" aria-label={t("loginPasswordSettings")}>
@@ -273,5 +292,7 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
         </div>
       </section>
     </div>
+    {confirmDialog.element}
+    </>
   )
 }

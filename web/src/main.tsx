@@ -7,6 +7,7 @@ import "@astryxdesign/theme-matcha/theme.css"
 import "@astryxdesign/theme-neutral/theme.css"
 import "@astryxdesign/theme-stone/theme.css"
 import "@astryxdesign/theme-y2k/theme.css"
+import "@react-email/editor/themes/default.css"
 import "./theme/tokens.css"
 import "./styles/app.css"
 

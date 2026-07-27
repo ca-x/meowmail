@@ -1,4 +1,5 @@
 pub mod cleanup_rule;
+pub mod contact;
 pub mod email_draft;
 pub mod mail_account;
 pub mod mail_setting;

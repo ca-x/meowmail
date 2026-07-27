@@ -10,11 +10,13 @@ import { AccountDialog } from "../accounts/AccountDialog"
 import { AccountManagerDialog } from "../accounts/AccountManagerDialog"
 import { SettingsDialog } from "../settings/SettingsDialog"
 import { ComposeDialog } from "./ComposeDialog"
+import { ContactsDialog } from "./ContactsDialog"
 import { MessageDetail as DetailPane } from "./MessageDetail"
 import { MailNavigation } from "./workspace/MailNavigation"
 import { MailTopBar } from "./workspace/MailTopBar"
 import { MessageColumn } from "./workspace/MessageColumn"
 import { useMailWorkspace } from "./workspace/useMailWorkspace"
+import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
 
 export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut }: {
   session: SessionResponse
@@ -24,6 +26,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
 }) {
   const { t } = useI18n()
   const workspace = useMailWorkspace({ onLoggedOut })
+  const deleteDraftDialog = useImperativeConfirmDialog()
   const viewportWidth = useViewportWidth()
   const navigationMax = viewportWidth < 1_400 ? 260 : 320
   const detailMax = Math.max(440, Math.min(920, viewportWidth - navigationMax - 300))
@@ -63,11 +66,16 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
       activeAccountId={workspace.activeAccountId}
       filter={workspace.filter}
       unreadCount={workspace.messages.filter((message) => !message.isRead).length}
+      draftCount={workspace.drafts.length}
       onChooseAccount={workspace.chooseAccount}
       onChooseFilter={workspace.chooseFilter}
       onCompose={() => {
         workspace.setSidebarOpen(false)
         workspace.setComposeDraft(null)
+      }}
+      onOpenContacts={() => {
+        workspace.setSidebarOpen(false)
+        workspace.setContactsOpen(true)
       }}
       onEditAccount={(account) => openAccountDialog(account)}
       onAddAccount={() => openAccountDialog(null)}
@@ -140,15 +148,32 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
                 activeAccount={workspace.activeAccount}
                 filter={workspace.filter}
                 messages={workspace.messages}
+                drafts={workspace.drafts}
                 selectedId={workspace.selectedId}
                 loading={workspace.loading}
                 syncing={workspace.syncing}
+                deleting={workspace.deleting}
+                draftBusyId={workspace.draftBusyId}
                 preferences={workspace.mailPreferences}
                 onChooseFilter={workspace.chooseFilter}
                 onSync={() => void workspace.sync()}
+                onRefreshDrafts={() => void workspace.loadDrafts()}
                 onAddAccount={() => openAccountDialog(null)}
                 onSelect={(message) => void workspace.selectMessage(message)}
                 onToggleStar={(message) => void workspace.toggleStar(message)}
+                onOpenDraft={workspace.openDraft}
+                onSendDraft={(draft) => void workspace.sendDraft(draft)}
+                onDeleteDraft={(draft) => {
+                  void deleteDraftDialog.confirm({
+                    title: t("deleteDraftTitle"),
+                    description: t("deleteDraftConfirm"),
+                    cancelLabel: t("cancel"),
+                    actionLabel: t("delete"),
+                    actionVariant: "destructive",
+                  }).then((confirmed) => {
+                    if (confirmed) void workspace.deleteDraft(draft)
+                  })
+                }}
               />
             </LayoutContent>
           }
@@ -198,8 +223,17 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
         onClose={() => workspace.setComposeDraft(undefined)}
         onSent={() => {
           workspace.setComposeDraft(undefined)
+          void workspace.loadDrafts()
           workspace.notify("sentSuccess")
         }}
+        onDraftSaved={(scheduled) => {
+          void workspace.loadDrafts()
+          workspace.notify(scheduled ? "scheduledDraftSaved" : "draftSaved")
+        }}
+      />
+      <ContactsDialog
+        isOpen={workspace.contactsOpen}
+        onClose={() => workspace.setContactsOpen(false)}
       />
       <SettingsDialog
         isOpen={workspace.settingsOpen}
@@ -240,6 +274,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
           workspace.notify("deletedSuccess")
         }}
       />
+      {deleteDraftDialog.element}
     </AppShell>
   )
 }

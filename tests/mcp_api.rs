@@ -19,6 +19,7 @@ use meowmail::{
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::{Value, json};
 use std::convert::Infallible;
+use time::OffsetDateTime;
 use tokio::time::{Duration, sleep};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -542,6 +543,59 @@ async fn mcp_can_create_and_list_an_owned_email_draft() {
 }
 
 #[tokio::test]
+async fn scheduled_draft_validation_does_not_leave_partial_draft() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::initialize(
+        Config::new(
+            "correct horse battery staple".into(),
+            directory.path().to_path_buf(),
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+    let owner = UserRepository::new(state.db.clone())
+        .authenticate_local("admin", "correct horse battery staple")
+        .await
+        .unwrap();
+    let account = AccountRepository::new(state.db.clone(), state.vault.clone())
+        .create(owner.id, account_input("Work", "me@example.com"))
+        .await
+        .unwrap();
+    let database = state.db.clone();
+    let app = build_router(state);
+    let session = login(&app).await;
+    let scheduled_at = OffsetDateTime::now_utc().unix_timestamp() + 10 * 60;
+
+    let rejected = session_request(
+        &app,
+        "POST",
+        "/api/v1/drafts",
+        &session,
+        Some(json!({
+            "accountId": account.id,
+            "to": [],
+            "cc": [],
+            "bcc": [],
+            "subject": "Partial scheduled draft",
+            "textBody": "This must not be saved.",
+            "htmlBody": "<p>This must not be saved.</p>",
+            "applySignature": true,
+            "scheduledAt": scheduled_at
+        })),
+    )
+    .await;
+    assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        DraftRepository::new(database)
+            .list(owner.id, 100)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn mcp_token_cannot_access_another_users_mail_resources() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::initialize(
@@ -631,9 +685,12 @@ async fn mcp_token_cannot_access_another_users_mail_resources() {
                 subject: "Other draft".into(),
                 text_body: "Other user's draft body".into(),
                 html_body: None,
+                signature_id: None,
+                apply_signature: true,
             },
             None,
             ThreadingHeaders::default(),
+            None,
         )
         .await
         .unwrap();
@@ -788,9 +845,12 @@ async fn email_draft_send_claim_is_atomic_and_uncertain_drafts_cannot_be_reclaim
                 subject: "Atomic send".into(),
                 text_body: "Only send once.".into(),
                 html_body: None,
+                signature_id: None,
+                apply_signature: true,
             },
             None,
             ThreadingHeaders::default(),
+            None,
         )
         .await
         .unwrap();
@@ -806,10 +866,9 @@ async fn email_draft_send_claim_is_atomic_and_uncertain_drafts_cannot_be_reclaim
         .mark_after_send_failure(owner.id, draft.id, EmailDraftStatus::Ambiguous)
         .await
         .unwrap();
-    assert_eq!(
-        drafts.list(owner.id, 20).await.unwrap()[0].status,
-        EmailDraftStatus::Ambiguous
-    );
+    let failed = drafts.list(owner.id, 20).await.unwrap()[0].clone();
+    assert_eq!(failed.status, EmailDraftStatus::Ambiguous);
+    assert_eq!(failed.scheduled_at, None);
     assert!(matches!(
         drafts.claim_for_send(owner.id, draft.id).await,
         Err(AppError::Conflict)
@@ -826,9 +885,12 @@ async fn email_draft_send_claim_is_atomic_and_uncertain_drafts_cannot_be_reclaim
                 subject: "Interrupted send".into(),
                 text_body: "The process stops after claiming this draft.".into(),
                 html_body: None,
+                signature_id: None,
+                apply_signature: true,
             },
             None,
             ThreadingHeaders::default(),
+            None,
         )
         .await
         .unwrap();
@@ -856,6 +918,67 @@ async fn email_draft_send_claim_is_atomic_and_uncertain_drafts_cannot_be_reclaim
         .find(|candidate| candidate.id == interrupted.id)
         .unwrap();
     assert_eq!(recovered.status, EmailDraftStatus::Ambiguous);
+}
+
+#[tokio::test]
+async fn failed_scheduled_draft_is_removed_from_due_queue() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::initialize(
+        Config::new(
+            "correct horse battery staple".into(),
+            directory.path().to_path_buf(),
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+    let owner = UserRepository::new(state.db.clone())
+        .authenticate_local("admin", "correct horse battery staple")
+        .await
+        .unwrap();
+    let account = AccountRepository::new(state.db.clone(), state.vault.clone())
+        .create(owner.id, account_input("Work", "me@example.com"))
+        .await
+        .unwrap();
+    let drafts = DraftRepository::new(state.db.clone());
+    let draft = drafts
+        .create(
+            owner.id,
+            ComposeInput {
+                account_id: account.id,
+                to: vec!["alice@example.com".into()],
+                cc: Vec::new(),
+                bcc: Vec::new(),
+                subject: "Scheduled send".into(),
+                text_body: "Do not retry forever.".into(),
+                html_body: None,
+                signature_id: None,
+                apply_signature: true,
+            },
+            None,
+            ThreadingHeaders::default(),
+            Some(OffsetDateTime::now_utc().unix_timestamp() - 60),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(drafts.list_due_scheduled(20).await.unwrap().len(), 1);
+    drafts.claim_for_send(owner.id, draft.id).await.unwrap();
+    drafts
+        .mark_after_send_failure(owner.id, draft.id, EmailDraftStatus::Draft)
+        .await
+        .unwrap();
+
+    let failed = drafts
+        .list(owner.id, 20)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|candidate| candidate.id == draft.id)
+        .unwrap();
+    assert_eq!(failed.status, EmailDraftStatus::Draft);
+    assert_eq!(failed.scheduled_at, None);
+    assert!(drafts.list_due_scheduled(20).await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -896,9 +1019,12 @@ async fn public_send_failure_becomes_ambiguous_and_cannot_be_retried() {
                 subject: "SMTP failure".into(),
                 text_body: "This cannot connect to SMTP.".into(),
                 html_body: None,
+                signature_id: None,
+                apply_signature: true,
             },
             None,
             ThreadingHeaders::default(),
+            None,
         )
         .await
         .unwrap();

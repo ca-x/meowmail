@@ -1,10 +1,10 @@
 import { useToast } from "@astryxdesign/core/Toast"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { api } from "../../../app/api"
+import { ApiError, api } from "../../../app/api"
 import { defaultMailPreferences } from "../../../app/mailPreferences"
 import { readStoredValue, removeStoredValue, writeStoredValue } from "../../../app/storage"
-import type { MailAccount, MailPreferences, MessageDetail, MessageSummary } from "../../../app/types"
+import type { EmailDraft, MailAccount, MailPreferences, MessageDetail, MessageSummary } from "../../../app/types"
 import { useI18n } from "../../../i18n/I18nProvider"
 import type { MessageKey } from "../../../i18n/messages"
 import type { ComposeDraft } from "../ComposeDialog"
@@ -16,6 +16,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [accounts, setAccounts] = useState<MailAccount[]>([])
   const [activeAccountId, setActiveAccountId] = useState<string | null>(() => readStoredValue("meowmail-account"))
   const [messages, setMessages] = useState<MessageSummary[]>([])
+  const [drafts, setDrafts] = useState<EmailDraft[]>([])
   const [mailPreferences, setMailPreferences] = useState<MailPreferences>(defaultMailPreferences)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<MessageDetail | null>(null)
@@ -27,8 +28,10 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [draftBusyId, setDraftBusyId] = useState<string | null>(null)
   const [composeDraft, setComposeDraft] = useState<ComposeDraft | null | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [contactsOpen, setContactsOpen] = useState(false)
   const [accountManagerOpen, setAccountManagerOpen] = useState(false)
   const [accountDialog, setAccountDialog] = useState<MailAccount | null | undefined>(undefined)
   const [mobileView, setMobileView] = useState<MailMobileView>("list")
@@ -65,6 +68,10 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   }, [])
 
   const loadMessages = useCallback(async () => {
+    if (filter === "drafts") {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       const params = new URLSearchParams({ folder: "INBOX", limit: "120" })
@@ -88,6 +95,14 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       setLoading(false)
     }
   }, [activeAccountId, filter, notify, query])
+
+  const loadDrafts = useCallback(async () => {
+    try {
+      setDrafts(await api.drafts())
+    } catch {
+      notify("genericError", undefined, "error")
+    }
+  }, [notify])
 
   const selectMessage = useCallback(async (message: MessageSummary) => {
     setSidebarOpen(false)
@@ -120,6 +135,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   useEffect(() => { loadAccounts().catch(() => notify("genericError", undefined, "error")) }, [loadAccounts, notify])
   useEffect(() => { api.mailPreferences().then(setMailPreferences).catch(() => notify("genericError", undefined, "error")) }, [notify])
   useEffect(() => { void loadMessages() }, [loadMessages])
+  useEffect(() => { void loadDrafts() }, [loadDrafts])
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 250)
     return () => window.clearTimeout(timer)
@@ -128,7 +144,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   useEffect(() => {
     function keyboard(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
-      if (composeDraft !== undefined || settingsOpen || accountManagerOpen || accountDialog !== undefined) return
+      if (composeDraft !== undefined || settingsOpen || contactsOpen || accountManagerOpen || accountDialog !== undefined) return
       if (event.defaultPrevented) return
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         if (searchRef.current) {
@@ -160,7 +176,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
     window.addEventListener("keydown", keyboard)
     return () => window.removeEventListener("keydown", keyboard)
-  }, [accountDialog, accountManagerOpen, accounts.length, composeDraft, messages, mobileView, selectMessage, settingsOpen, sidebarOpen])
+  }, [accountDialog, accountManagerOpen, accounts.length, composeDraft, contactsOpen, messages, mobileView, selectMessage, settingsOpen, sidebarOpen])
 
   const chooseAccount = useCallback((id: string | null) => {
     setActiveAccountId(id)
@@ -176,9 +192,16 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   const chooseFilter = useCallback((next: MailFilter) => {
     setFilter(next)
+    if (next === "drafts") {
+      selectedIdRef.current = null
+      setSelectedId(null)
+      setDetail(null)
+      setThread([])
+      void loadDrafts()
+    }
     setSidebarOpen(false)
     setMobileView("list")
-  }, [])
+  }, [loadDrafts])
 
   const toggleStar = useCallback(async (message: MessageSummary) => {
     const updated = await api.updateMessage(message.id, { isStarred: !message.isStarred }).catch(() => null)
@@ -198,16 +221,16 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   }, [detail, notify])
 
   const sync = useCallback(async () => {
-    if (!accounts.length || syncing) return
+    if (!accounts.length || syncing || deletingRef.current) return
     setSyncing(true)
     try {
       const targets = activeAccount ? [activeAccount] : accounts
       const results = await Promise.all(targets.map((account) => api.syncAccount(account.id)))
       const count = results.reduce((total, result) => total + result.inserted, 0)
       await Promise.all([loadAccounts(), loadMessages()])
-      notify("refreshed", { count })
-    } catch {
-      notify("genericError", undefined, "error")
+      notify(count > 0 ? "refreshed" : "noNewMail", { count })
+    } catch (error) {
+      notify(error instanceof ApiError && error.status === 409 ? "mailboxBusy" : "genericError", undefined, "error")
     } finally {
       setSyncing(false)
     }
@@ -242,9 +265,10 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     setDeleting(true)
     const currentIndex = messages.findIndex((message) => message.id === detail.id)
     try {
-      await api.deleteMessage(detail.id)
-      const nextMessages = messages.filter((message) => message.id !== detail.id)
-      setMessages(nextMessages)
+      const deletedId = detail.id
+      await api.deleteMessage(deletedId)
+      const nextMessages = messages.filter((message) => message.id !== deletedId)
+      setMessages((items) => items.filter((message) => message.id !== deletedId))
       notify("messageDeletedSuccess")
       if (mailPreferences.afterAction === "nextMessage" && nextMessages.length) {
         const next = nextMessages[Math.min(currentIndex, nextMessages.length - 1)]
@@ -264,18 +288,64 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }, [detail, mailPreferences.afterAction, messages, notify, selectMessage])
 
+  const openDraft = useCallback((draft: EmailDraft) => {
+    setSidebarOpen(false)
+    setComposeDraft({
+      id: draft.id,
+      accountId: draft.accountId,
+      to: draft.to.join(", "),
+      cc: draft.cc.join(", "),
+      bcc: draft.bcc.join(", "),
+      subject: draft.subject,
+      body: draft.textBody,
+      htmlBody: draft.htmlBody,
+      signatureId: draft.signatureId,
+      applySignature: draft.applySignature,
+      scheduledAt: draft.scheduledAt,
+    })
+  }, [])
+
+  const deleteDraft = useCallback(async (draft: EmailDraft) => {
+    if (draftBusyId) return
+    setDraftBusyId(draft.id)
+    try {
+      await api.deleteDraft(draft.id)
+      setDrafts((items) => items.filter((item) => item.id !== draft.id))
+      notify("draftDeleted")
+    } catch {
+      notify("genericError", undefined, "error")
+    } finally {
+      setDraftBusyId(null)
+    }
+  }, [draftBusyId, notify])
+
+  const sendDraft = useCallback(async (draft: EmailDraft) => {
+    if (draftBusyId) return
+    setDraftBusyId(draft.id)
+    try {
+      await api.sendDraft(draft.id)
+      setDrafts((items) => items.filter((item) => item.id !== draft.id))
+      notify("sentSuccess")
+    } catch {
+      await loadDrafts()
+      notify("genericError", undefined, "error")
+    } finally {
+      setDraftBusyId(null)
+    }
+  }, [draftBusyId, loadDrafts, notify])
+
   const logout = useCallback(async () => {
     await api.logout().catch(() => undefined)
     onLoggedOut()
   }, [onLoggedOut])
 
   return {
-    accounts, setAccounts, activeAccountId, activeAccount, messages, mailPreferences, setMailPreferences,
+    accounts, setAccounts, activeAccountId, activeAccount, messages, drafts, mailPreferences, setMailPreferences,
     selectedId, detail, thread, filter, search, setSearch, loading, detailLoading, syncing, deleting,
-    composeDraft, setComposeDraft, settingsOpen, setSettingsOpen, accountManagerOpen, setAccountManagerOpen, accountDialog, setAccountDialog,
-    mobileView, setMobileView, sidebarOpen, setSidebarOpen, searchRef, notify, loadAccounts,
+    draftBusyId, composeDraft, setComposeDraft, settingsOpen, setSettingsOpen, contactsOpen, setContactsOpen, accountManagerOpen, setAccountManagerOpen, accountDialog, setAccountDialog,
+    mobileView, setMobileView, sidebarOpen, setSidebarOpen, searchRef, notify, loadAccounts, loadDrafts,
     chooseAccount, chooseFilter, selectMessage, toggleStar, toggleRead, sync, replyToMessage,
-    forwardMessage, deleteMessage, logout,
+    forwardMessage, deleteMessage, openDraft, deleteDraft, sendDraft, logout,
   }
 }
 

@@ -1,4 +1,3 @@
-import { useImperativeAlertDialog } from "@astryxdesign/core/AlertDialog"
 import { Button } from "@astryxdesign/core/Button"
 import { Card } from "@astryxdesign/core/Card"
 import { IconButton } from "@astryxdesign/core/IconButton"
@@ -7,12 +6,13 @@ import { Switch } from "@astryxdesign/core/Switch"
 import { TextArea } from "@astryxdesign/core/TextArea"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { MailPlus, PencilLine, Plus, Save, Trash2 } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { api } from "../../app/api"
 import type { MailAccount, MailPreferences, Signature } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import type { MessageKey } from "../../i18n/messages"
+import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
 
 type IdentityDraft = { displayName: string; signatureId: string }
 
@@ -24,14 +24,13 @@ export function MailSendingPreferences({ preferences, onChange, accounts, onAcco
   onNotice: (key: MessageKey, error?: boolean) => void
 }) {
   const { t } = useI18n()
-  const deleteAlert = useImperativeAlertDialog()
+  const deleteDialog = useImperativeConfirmDialog()
   const [signatures, setSignatures] = useState<Signature[]>([])
   const [signatureId, setSignatureId] = useState<string | "new" | null>(null)
   const [signatureName, setSignatureName] = useState("")
   const [signatureBody, setSignatureBody] = useState("")
   const [identities, setIdentities] = useState<Record<string, IdentityDraft>>({})
   const [busy, setBusy] = useState<"default" | "signature" | string | null>(null)
-  const deletePending = useRef(false)
 
   useEffect(() => {
     setIdentities(Object.fromEntries(accounts.map((account) => [account.id, {
@@ -123,35 +122,31 @@ export function MailSendingPreferences({ preferences, onChange, accounts, onAcco
     }
   }
 
-  function requestDeleteSignature() {
-    if (!selectedSignature) return
-    deleteAlert.show({
+  async function requestDeleteSignature() {
+    const signature = selectedSignature
+    if (!signature) return
+    const confirmed = await deleteDialog.confirm({
       title: t("deleteSignatureConfirm"),
-      description: selectedSignature.name,
+      description: signature.name,
       cancelLabel: t("cancel"),
       actionLabel: t("delete"),
       actionVariant: "destructive",
-      onAction: async () => {
-        if (deletePending.current) return
-        deletePending.current = true
-        deleteAlert.hide()
-        setBusy("signature")
-        try {
-          await api.deleteSignature(selectedSignature.id)
-          setSignatures((current) => current.filter((signature) => signature.id !== selectedSignature.id))
-          setSignatureId(null)
-          setSignatureName("")
-          setSignatureBody("")
-          onAccountsChanged(accounts.map((account) => account.signatureId === selectedSignature.id ? { ...account, signatureId: null } : account))
-          onNotice("signatureDeleted")
-        } catch {
-          onNotice("genericError", true)
-        } finally {
-          setBusy(null)
-          deletePending.current = false
-        }
-      },
     })
+    if (!confirmed) return
+    setBusy("signature")
+    try {
+      await api.deleteSignature(signature.id)
+      setSignatures((current) => current.filter((item) => item.id !== signature.id))
+      setSignatureId(null)
+      setSignatureName("")
+      setSignatureBody("")
+      onAccountsChanged(accounts.map((account) => account.signatureId === signature.id ? { ...account, signatureId: null } : account))
+      onNotice("signatureDeleted")
+    } catch {
+      onNotice("genericError", true)
+    } finally {
+      setBusy(null)
+    }
   }
 
   return (
@@ -195,7 +190,7 @@ export function MailSendingPreferences({ preferences, onChange, accounts, onAcco
                 <TextInput label={`${t("signatureName")} · ${t("required")}`} value={signatureName} onChange={setSignatureName} placeholder={t("signatureNamePlaceholder")} width="100%" />
                 <TextArea label={`${t("signatureContent")} · ${t("required")}`} value={signatureBody} onChange={setSignatureBody} placeholder={t("signatureContentPlaceholder")} rows={6} width="100%" />
                 <div className="settings-button-row mail-signature-actions">
-                  {selectedSignature && <Button label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="ghost" isDisabled={busy === "signature"} onClick={requestDeleteSignature} />}
+                  {selectedSignature && <Button label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="ghost" isDisabled={busy === "signature"} onClick={() => void requestDeleteSignature()} />}
                   <Button label={t("save")} icon={<Save aria-hidden="true" />} variant="secondary" isLoading={busy === "signature"} isDisabled={!signatureName.trim() || busy === "signature"} onClick={() => void saveSignature()} />
                 </div>
               </div>
@@ -222,7 +217,7 @@ export function MailSendingPreferences({ preferences, onChange, accounts, onAcco
           </div>
         </Card>
       </section>
-      {deleteAlert.element}
+      {deleteDialog.element}
     </>
   )
 }

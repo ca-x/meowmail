@@ -103,6 +103,7 @@ test("profile settings submit the editable username and nickname together", asyn
   renderSettings()
   await useEnglish(user)
   const profile = screen.getByRole("region", { name: "Profile" })
+  await user.click(within(profile).getByRole("button", { name: "Edit" }))
   const username = within(profile).getByRole("textbox", { name: "Username" })
   const nickname = within(profile).getByRole("textbox", { name: "Nickname" })
   await user.clear(username)

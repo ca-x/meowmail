@@ -3,22 +3,24 @@ import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { IconButton } from "@astryxdesign/core/IconButton"
 import { TreeList, type TreeListItemData } from "@astryxdesign/core/TreeList"
-import { ChevronDown, FileText, Inbox, LogOut, MailPlus, Paperclip, Plus, Send, Settings, Star, Trash2 } from "lucide-react"
+import { ChevronDown, FilePenLine, FileText, Inbox, LogOut, MailPlus, NotebookTabs, Paperclip, Plus, Send, Settings, Star, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import type { MailAccount } from "../../../app/types"
 import { useI18n } from "../../../i18n/I18nProvider"
 import type { MailFilter } from "./types"
 
-export function MailNavigation({ accounts, activeAccount, activeAccountId, filter, unreadCount, onChooseAccount, onChooseFilter, onCompose, onEditAccount, onAddAccount, onOpenSettings, onLogout }: {
+export function MailNavigation({ accounts, activeAccount, activeAccountId, filter, unreadCount, draftCount, onChooseAccount, onChooseFilter, onCompose, onOpenContacts, onEditAccount, onAddAccount, onOpenSettings, onLogout }: {
   accounts: MailAccount[]
   activeAccount: MailAccount | null
   activeAccountId: string | null
   filter: MailFilter
   unreadCount: number
+  draftCount: number
   onChooseAccount: (id: string | null) => void
   onChooseFilter: (filter: MailFilter) => void
   onCompose: () => void
+  onOpenContacts: () => void
   onEditAccount: (account: MailAccount | null) => void
   onAddAccount: () => void
   onOpenSettings: () => void
@@ -31,9 +33,10 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
     { id: "starred", label: t("starred"), startContent: <Star aria-hidden="true" />, isSelected: filter === "starred", onClick: () => onChooseFilter("starred") },
     { id: "unread", label: t("unread"), startContent: <FileText aria-hidden="true" />, isSelected: filter === "unread", onClick: () => onChooseFilter("unread") },
     { id: "attachments", label: t("attachments"), startContent: <Paperclip aria-hidden="true" />, isSelected: filter === "attachments", onClick: () => onChooseFilter("attachments") },
+    { id: "drafts", label: t("drafts"), startContent: <FilePenLine aria-hidden="true" />, endContent: draftCount > 0 ? <Badge label={draftCount} variant="neutral" /> : undefined, isSelected: filter === "drafts", onClick: () => onChooseFilter("drafts") },
     { id: "sent", label: t("sent"), startContent: <Send aria-hidden="true" />, isDisabled: true },
     { id: "trash", label: t("trash"), startContent: <Trash2 aria-hidden="true" />, isDisabled: true },
-  ], [filter, onChooseFilter, t, unreadCount])
+  ], [draftCount, filter, onChooseFilter, t, unreadCount])
 
   const accountItems = useMemo<TreeListItemData[]>(() => [
     {
@@ -83,6 +86,13 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
           width="100%"
           isDisabled={!accounts.length}
           onClick={onCompose}
+        />
+        <Button
+          label={t("contacts")}
+          icon={<NotebookTabs aria-hidden="true" />}
+          variant="secondary"
+          width="100%"
+          onClick={onOpenContacts}
         />
       </div>
 

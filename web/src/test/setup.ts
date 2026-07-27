@@ -29,3 +29,11 @@ if (!HTMLDialogElement.prototype.close) {
     this.removeAttribute("open")
   }
 }
+
+if (!window.ResizeObserver) {
+  window.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}

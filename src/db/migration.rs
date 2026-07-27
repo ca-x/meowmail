@@ -13,7 +13,72 @@ impl MigratorTrait for Migrator {
             Box::new(McpIntegrityMigration),
             Box::new(AttachmentPreviewMigration),
             Box::new(MailExperienceMigration),
+            Box::new(ContactsDraftSchedulingMigration),
         ]
+    }
+}
+
+struct ContactsDraftSchedulingMigration;
+
+impl MigrationName for ContactsDraftSchedulingMigration {
+    fn name(&self) -> &str {
+        "m20260727_000008_contacts_draft_scheduling"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for ContactsDraftSchedulingMigration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                CREATE TABLE contacts (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    display_name VARCHAR(160) NOT NULL,
+                    email VARCHAR(254) NOT NULL,
+                    notes TEXT NOT NULL DEFAULT '',
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_contact_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(user_id, email)
+                );
+                CREATE INDEX idx_contacts_user_name
+                    ON contacts(user_id, display_name COLLATE NOCASE, email COLLATE NOCASE);
+
+                ALTER TABLE email_drafts ADD COLUMN html_body TEXT;
+                ALTER TABLE email_drafts ADD COLUMN signature_id TEXT
+                    REFERENCES signatures(id) ON UPDATE CASCADE ON DELETE SET NULL;
+                ALTER TABLE email_drafts ADD COLUMN apply_signature BOOLEAN NOT NULL DEFAULT 1;
+                ALTER TABLE email_drafts ADD COLUMN scheduled_at BIGINT;
+                ALTER TABLE email_drafts ADD COLUMN last_error TEXT;
+                CREATE INDEX idx_email_drafts_scheduled
+                    ON email_drafts(status, scheduled_at, updated_at);
+                "#,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                DROP INDEX IF EXISTS idx_email_drafts_scheduled;
+                ALTER TABLE email_drafts DROP COLUMN last_error;
+                ALTER TABLE email_drafts DROP COLUMN scheduled_at;
+                ALTER TABLE email_drafts DROP COLUMN apply_signature;
+                ALTER TABLE email_drafts DROP COLUMN signature_id;
+                ALTER TABLE email_drafts DROP COLUMN html_body;
+                DROP INDEX IF EXISTS idx_contacts_user_name;
+                DROP TABLE IF EXISTS contacts;
+                "#,
+            )
+            .await?;
+        Ok(())
     }
 }
 
