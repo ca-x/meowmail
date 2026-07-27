@@ -6,6 +6,7 @@ import { api } from "../../app/api"
 import type { MailAccount } from "../../app/types"
 import { Providers } from "../../app/Providers"
 import { AccountDialog } from "./AccountDialog"
+import { AccountManagerDialog } from "./AccountManagerDialog"
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -124,4 +125,26 @@ test.each([
   expect(within(imap).getByRole("spinbutton", { name: /Port/ })).toHaveValue(993)
   expect(within(smtp).getByRole("textbox", { name: /Host/ })).toHaveValue(smtpHost)
   expect(within(smtp).getByRole("spinbutton", { name: /Port/ })).toHaveValue(smtpPort)
+})
+
+test("mail account management starts with a list and opens the selected editor", async () => {
+  const user = userEvent.setup()
+  render(
+    <Providers>
+      <AccountManagerDialog
+        isOpen
+        accounts={[account]}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+        onNotice={vi.fn()}
+      />
+    </Providers>,
+  )
+
+  const manager = screen.getByRole("dialog", { name: "Manage mail accounts" })
+  expect(within(manager).getByText("Work")).toBeInTheDocument()
+  expect(within(manager).getByText("me@example.com")).toBeInTheDocument()
+  await user.click(within(manager).getByRole("button", { name: "Edit mail account: Work" }))
+
+  expect(await screen.findByRole("dialog", { name: "Edit mail account" })).toBeInTheDocument()
 })

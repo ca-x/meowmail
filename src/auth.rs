@@ -544,6 +544,14 @@ impl SessionStore {
             .remove(&token_digest(token));
     }
 
+    pub fn revoke_user(&self, user_id: uuid::Uuid) {
+        self.inner
+            .lock()
+            .expect("session mutex poisoned")
+            .sessions
+            .retain(|_, record| record.user_id != user_id);
+    }
+
     fn check_login_allowed(&self) -> Result<(), AppError> {
         let mut state = self.inner.lock().expect("session mutex poisoned");
         let cutoff = Instant::now() - Duration::from_secs(60);

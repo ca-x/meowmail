@@ -2,10 +2,9 @@ import { Avatar } from "@astryxdesign/core/Avatar"
 import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { IconButton } from "@astryxdesign/core/IconButton"
-import { Kbd } from "@astryxdesign/core/Kbd"
 import { TreeList, type TreeListItemData } from "@astryxdesign/core/TreeList"
-import { FileText, Inbox, LogOut, MailPlus, Paperclip, Plus, Send, Settings, Star, Trash2 } from "lucide-react"
-import { useMemo } from "react"
+import { ChevronDown, FileText, Inbox, LogOut, MailPlus, Paperclip, Plus, Send, Settings, Star, Trash2 } from "lucide-react"
+import { useMemo, useState } from "react"
 
 import type { MailAccount } from "../../../app/types"
 import { useI18n } from "../../../i18n/I18nProvider"
@@ -26,6 +25,7 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
   onLogout: () => void
 }) {
   const { t } = useI18n()
+  const [accountsExpanded, setAccountsExpanded] = useState(true)
   const folderItems = useMemo<TreeListItemData[]>(() => [
     { id: "inbox", label: t("inbox"), startContent: <Inbox aria-hidden="true" />, endContent: unreadCount > 0 ? <Badge label={unreadCount} variant="info" /> : undefined, isSelected: filter === "inbox", onClick: () => onChooseFilter("inbox") },
     { id: "starred", label: t("starred"), startContent: <Star aria-hidden="true" />, isSelected: filter === "starred", onClick: () => onChooseFilter("starred") },
@@ -79,7 +79,6 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
         <Button
           label={t("compose")}
           icon={<MailPlus aria-hidden="true" />}
-          endContent={<Kbd keys="c" />}
           variant="primary"
           width="100%"
           isDisabled={!accounts.length}
@@ -91,12 +90,22 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
         <TreeList items={folderItems} density="compact" />
       </nav>
 
-      <section className="mail-navigation-accounts" aria-labelledby="mail-account-heading">
+      <section className={`mail-navigation-accounts${accountsExpanded ? "" : " is-collapsed"}`} aria-labelledby="mail-account-heading">
         <div className="mail-navigation-section-heading">
-          <span id="mail-account-heading">{t("accounts")}</span>
+          <button
+            type="button"
+            className="mail-navigation-section-toggle"
+            aria-expanded={accountsExpanded}
+            aria-controls="mail-account-list"
+            onClick={() => setAccountsExpanded((value) => !value)}
+          >
+            <ChevronDown aria-hidden="true" />
+            <span id="mail-account-heading">{t("accounts")}</span>
+            <span className="visually-hidden">{accountsExpanded ? t("collapseAccounts") : t("expandAccounts")}</span>
+          </button>
           <IconButton label={t("addAccount")} icon={<Plus aria-hidden="true" />} variant="ghost" size="sm" onClick={onAddAccount} />
         </div>
-        <TreeList items={accountItems} density="compact" />
+        {accountsExpanded && <div id="mail-account-list"><TreeList items={accountItems} density="compact" /></div>}
       </section>
 
       <footer className="mail-navigation-footer">

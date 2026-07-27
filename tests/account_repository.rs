@@ -6,6 +6,8 @@ use meowmail::{
     config::Config,
     db::entities::mail_account,
     error::AppError,
+    mail::parse_message,
+    messages::{MessageFilter, MessageRepository, NewMessage},
     users::UserRepository,
 };
 use sea_orm::EntityTrait;
@@ -73,6 +75,70 @@ async fn multiple_mail_accounts_are_isolated_and_secrets_are_encrypted() {
     repository.delete(owner.id, first.id).await.unwrap();
     let remaining = repository.get(owner.id, second.id).await.unwrap();
     assert!(remaining.is_default);
+}
+
+#[tokio::test]
+async fn changing_imap_identity_clears_cached_messages() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::initialize(
+        Config::new("a secure local pin".into(), directory.path().to_path_buf()).unwrap(),
+    )
+    .await
+    .unwrap();
+    let owner = UserRepository::new(state.db.clone())
+        .authenticate_local("admin", "a secure local pin")
+        .await
+        .unwrap();
+    let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
+    let saved_account = accounts
+        .create(owner.id, account("Work", "work@example.com", true))
+        .await
+        .unwrap();
+    let messages = MessageRepository::new(state.db.clone());
+    messages
+        .insert_if_new(
+            owner.id,
+            &saved_account,
+            NewMessage {
+                folder: "INBOX".into(),
+                uid: 42,
+                uid_validity: Some(1001),
+                mail: parse_message(
+                    b"From: Alice <alice@example.com>\r\nTo: work@example.com\r\nSubject: Old mailbox\r\n\r\nBody\r\n",
+                    2_000_000_000,
+                )
+                .unwrap(),
+                is_read: false,
+                is_starred: false,
+            },
+        )
+        .await
+        .unwrap();
+
+    let mut changed = account("Work", "new-work@example.com", true);
+    changed.imap.host = "imap.new.example.com".into();
+    changed.password = None;
+    accounts
+        .update(owner.id, saved_account.id, changed)
+        .await
+        .unwrap();
+
+    let cached = messages
+        .list(
+            owner.id,
+            MessageFilter {
+                account_id: Some(saved_account.id),
+                folder: "INBOX".into(),
+                unread: false,
+                starred: false,
+                has_attachment: false,
+                query: None,
+                limit: 10,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(cached.is_empty());
 }
 
 fn account(display_name: &str, email: &str, is_default: bool) -> AccountInput {

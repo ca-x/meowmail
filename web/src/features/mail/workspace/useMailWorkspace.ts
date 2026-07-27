@@ -26,13 +26,16 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [composeDraft, setComposeDraft] = useState<ComposeDraft | null | undefined>(undefined)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [accountManagerOpen, setAccountManagerOpen] = useState(false)
   const [accountDialog, setAccountDialog] = useState<MailAccount | null | undefined>(undefined)
   const [mobileView, setMobileView] = useState<MailMobileView>("list")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const selectedIdRef = useRef<string | null>(null)
+  const deletingRef = useRef(false)
 
   const activeAccount = useMemo(
     () => accounts.find((account) => account.id === activeAccountId) || null,
@@ -125,7 +128,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   useEffect(() => {
     function keyboard(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
-      if (composeDraft !== undefined || settingsOpen || accountDialog !== undefined) return
+      if (composeDraft !== undefined || settingsOpen || accountManagerOpen || accountDialog !== undefined) return
       if (event.defaultPrevented) return
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         if (searchRef.current) {
@@ -157,7 +160,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
     window.addEventListener("keydown", keyboard)
     return () => window.removeEventListener("keydown", keyboard)
-  }, [accountDialog, accounts.length, composeDraft, messages, mobileView, selectMessage, settingsOpen, sidebarOpen])
+  }, [accountDialog, accountManagerOpen, accounts.length, composeDraft, messages, mobileView, selectMessage, settingsOpen, sidebarOpen])
 
   const chooseAccount = useCallback((id: string | null) => {
     setActiveAccountId(id)
@@ -234,7 +237,9 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   }, [detail, mailPreferences.subjectPrefixLanguage, t])
 
   const deleteMessage = useCallback(async () => {
-    if (!detail) return
+    if (!detail || deletingRef.current) return
+    deletingRef.current = true
+    setDeleting(true)
     const currentIndex = messages.findIndex((message) => message.id === detail.id)
     try {
       await api.deleteMessage(detail.id)
@@ -253,6 +258,9 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       }
     } catch {
       notify("genericError", undefined, "error")
+    } finally {
+      deletingRef.current = false
+      setDeleting(false)
     }
   }, [detail, mailPreferences.afterAction, messages, notify, selectMessage])
 
@@ -263,8 +271,8 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   return {
     accounts, setAccounts, activeAccountId, activeAccount, messages, mailPreferences, setMailPreferences,
-    selectedId, detail, thread, filter, search, setSearch, loading, detailLoading, syncing,
-    composeDraft, setComposeDraft, settingsOpen, setSettingsOpen, accountDialog, setAccountDialog,
+    selectedId, detail, thread, filter, search, setSearch, loading, detailLoading, syncing, deleting,
+    composeDraft, setComposeDraft, settingsOpen, setSettingsOpen, accountManagerOpen, setAccountManagerOpen, accountDialog, setAccountDialog,
     mobileView, setMobileView, sidebarOpen, setSidebarOpen, searchRef, notify, loadAccounts,
     chooseAccount, chooseFilter, selectMessage, toggleStar, toggleRead, sync, replyToMessage,
     forwardMessage, deleteMessage, logout,

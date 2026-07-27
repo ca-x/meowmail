@@ -1,6 +1,7 @@
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, ExprTrait,
     IntoActiveModel, PaginatorTrait, QueryFilter, Set, Statement, TransactionTrait,
+    sea_query::Expr,
 };
 use secrecy::ExposeSecret;
 use time::OffsetDateTime;
@@ -32,7 +33,6 @@ impl UserRepository {
         let Some(admin) = admin else { return Ok(()) };
         let username = normalize_username(&admin.username)?;
         if user::Entity::find()
-            .filter(user::Column::Username.eq(&username))
             .one(self.db.connection())
             .await?
             .is_some()
@@ -41,12 +41,7 @@ impl UserRepository {
         }
         let password_hash = hash_secret(admin.password.expose_secret())?;
         let transaction = self.db.connection().begin().await?;
-        if user::Entity::find()
-            .filter(user::Column::Username.eq(&username))
-            .one(&transaction)
-            .await?
-            .is_some()
-        {
+        if user::Entity::find().one(&transaction).await?.is_some() {
             transaction.rollback().await?;
             return Ok(());
         }
@@ -207,12 +202,84 @@ impl UserRepository {
             .ok_or(AppError::Unauthorized)
     }
 
-    pub async fn update_nickname(&self, id: Uuid, nickname: &str) -> Result<PublicUser, AppError> {
+    pub async fn update_profile(
+        &self,
+        id: Uuid,
+        username: Option<&str>,
+        nickname: &str,
+    ) -> Result<PublicUser, AppError> {
         let nickname = clean_nickname(nickname)?;
-        let mut active = self.get_model(id).await?.into_active_model();
+        let transaction = self.db.connection().begin().await?;
+        let model = user::Entity::find_by_id(id.to_string())
+            .one(&transaction)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+        let username = match username {
+            Some(username) if username.trim().eq_ignore_ascii_case(&model.username) => {
+                model.username.clone()
+            }
+            Some(username) => normalize_editable_username(username)?,
+            None => model.username.clone(),
+        };
+        let conflict = user::Entity::find()
+            .filter(user::Column::Username.eq(&username))
+            .filter(user::Column::Id.ne(id.to_string()))
+            .one(&transaction)
+            .await?
+            .is_some();
+        if conflict {
+            transaction.rollback().await?;
+            return Err(AppError::Conflict);
+        }
+        let mut active = model.into_active_model();
+        active.username = Set(username);
         active.nickname = Set(nickname);
         active.updated_at = Set(OffsetDateTime::now_utc().unix_timestamp());
-        PublicUser::try_from(active.update(self.db.connection()).await?)
+        let updated = active.update(&transaction).await?;
+        transaction.commit().await?;
+        PublicUser::try_from(updated)
+    }
+
+    pub async fn update_password(
+        &self,
+        id: Uuid,
+        current_password: Option<&str>,
+        new_password: &str,
+    ) -> Result<PublicUser, AppError> {
+        validate_login_password(new_password)?;
+        let model = self.get_model(id).await?;
+        let previous_hash = model.password_hash.clone();
+        if let Some(hash) = previous_hash.as_deref() {
+            let supplied = current_password.ok_or(AppError::Unauthorized)?;
+            let hash = hash.to_owned();
+            let supplied = supplied.to_owned();
+            let verified = tokio::task::spawn_blocking(move || verify_secret(&hash, &supplied))
+                .await
+                .map_err(AppError::internal)?;
+            if !verified {
+                return Err(AppError::Unauthorized);
+            }
+        }
+        let new_password = new_password.to_owned();
+        let new_hash = tokio::task::spawn_blocking(move || hash_secret(&new_password))
+            .await
+            .map_err(AppError::internal)?
+            .map_err(AppError::internal)?;
+        let mut update = user::Entity::update_many()
+            .col_expr(user::Column::PasswordHash, Expr::value(Some(new_hash)))
+            .col_expr(
+                user::Column::UpdatedAt,
+                Expr::value(OffsetDateTime::now_utc().unix_timestamp()),
+            )
+            .filter(user::Column::Id.eq(id.to_string()));
+        update = match previous_hash {
+            Some(hash) => update.filter(user::Column::PasswordHash.eq(hash)),
+            None => update.filter(Expr::col(user::Column::PasswordHash).is_null()),
+        };
+        if update.exec(self.db.connection()).await?.rows_affected != 1 {
+            return Err(AppError::Conflict);
+        }
+        self.get(id).await
     }
 
     pub async fn set_avatar(
@@ -287,6 +354,39 @@ fn normalize_username(value: &str) -> anyhow::Result<String> {
         anyhow::bail!("username is invalid");
     }
     Ok(value.to_ascii_lowercase())
+}
+
+fn normalize_editable_username(value: &str) -> Result<String, AppError> {
+    let value = value.trim();
+    let valid = (2..=64).contains(&value.chars().count())
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-' | '@')
+        })
+        && value
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_alphanumeric())
+        && value
+            .chars()
+            .last()
+            .is_some_and(|character| character.is_ascii_alphanumeric());
+    if !valid {
+        return Err(AppError::Validation("username is invalid".into()));
+    }
+    Ok(value.to_ascii_lowercase())
+}
+
+fn validate_login_password(password: &str) -> Result<(), AppError> {
+    if password.chars().count() < 8
+        || password.len() > 4096
+        || password.chars().any(char::is_control)
+    {
+        return Err(AppError::Validation(
+            "password must contain at least 8 non-control characters and no more than 4096 UTF-8 bytes"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn unique_username(

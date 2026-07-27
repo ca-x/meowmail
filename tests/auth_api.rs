@@ -107,6 +107,279 @@ async fn invalid_password_is_rejected() {
 }
 
 #[tokio::test]
+async fn profile_username_change_is_validated_and_updates_local_login() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = Config::new("2468-meowmail".into(), directory.path().to_path_buf()).unwrap();
+    let app = build_router(AppState::initialize(config).await.unwrap());
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"username":"admin","password":"2468-meowmail"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let cookie = login.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body: Value =
+        serde_json::from_slice(&login.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let csrf = body["csrfToken"].as_str().unwrap();
+
+    let legacy_profile = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/users/me")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", csrf)
+                .body(Body::from(r#"{"nickname":"Legacy client"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(legacy_profile.status(), StatusCode::OK);
+    let legacy_profile: Value = serde_json::from_slice(
+        &legacy_profile
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(legacy_profile["username"], "admin");
+    assert_eq!(legacy_profile["nickname"], "Legacy client");
+
+    let too_short = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/users/me")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", csrf)
+                .body(Body::from(r#"{"username":"a","nickname":"Admin"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(too_short.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let updated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/users/me")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", csrf)
+                .body(Body::from(r#"{"username":"New.Admin","nickname":"Admin"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated: Value =
+        serde_json::from_slice(&updated.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(updated["username"], "new.admin");
+
+    let wrong_current_password = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/users/me/password")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", csrf)
+                .body(Body::from(
+                    r#"{"currentPassword":"wrong","newPassword":"new secure password"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong_current_password.status(), StatusCode::UNAUTHORIZED);
+
+    let oversized_password = "猫".repeat(2_000);
+    let oversized_password = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/users/me/password")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", csrf)
+                .body(Body::from(
+                    serde_json::json!({
+                        "currentPassword": "2468-meowmail",
+                        "newPassword": oversized_password,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        oversized_password.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    let second_login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"username":"new.admin","password":"2468-meowmail"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second_login.status(), StatusCode::OK);
+    let second_cookie = second_login.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+
+    let password_updated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/users/me/password")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", csrf)
+                .body(Body::from(
+                    r#"{"currentPassword":"2468-meowmail","newPassword":"new secure password"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(password_updated.status(), StatusCode::OK);
+
+    let revoked_session = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/session")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoked_session.status(), StatusCode::UNAUTHORIZED);
+
+    let revoked_second_session = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/session")
+                .header(header::COOKIE, &second_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoked_second_session.status(), StatusCode::UNAUTHORIZED);
+
+    let old_login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"username":"admin","password":"2468-meowmail"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_login.status(), StatusCode::UNAUTHORIZED);
+
+    let new_login = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"username":"new.admin","password":"new secure password"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(new_login.status(), StatusCode::OK);
+
+    let restarted = build_router(
+        AppState::initialize(
+            Config::new("2468-meowmail".into(), directory.path().to_path_buf()).unwrap(),
+        )
+        .await
+        .unwrap(),
+    );
+    let bootstrap_login = restarted
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"username":"admin","password":"2468-meowmail"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap_login.status(), StatusCode::UNAUTHORIZED);
+
+    let persisted_login = restarted
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"username":"new.admin","password":"new secure password"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(persisted_login.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn personal_pin_locks_and_unlocks_an_authenticated_session() {
     let directory = tempfile::tempdir().unwrap();
     let config = Config::new("2468-meowmail".into(), directory.path().to_path_buf()).unwrap();

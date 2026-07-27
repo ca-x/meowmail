@@ -32,6 +32,7 @@ use crate::{
     auth::{OidcService, SessionStore},
     config::Config,
     db::Database,
+    mail::MailboxLocks,
     mcp::{DraftRepository, McpRateLimiter},
     notifications::NotificationRunner,
     security::CredentialVault,
@@ -47,6 +48,8 @@ pub struct AppState {
     pub oidc: Option<OidcService>,
     pub notifications: NotificationRunner,
     pub mcp_limits: McpRateLimiter,
+    pub mailbox_locks: MailboxLocks,
+    pub password_locks: MailboxLocks,
 }
 
 impl AppState {
@@ -87,6 +90,8 @@ impl AppState {
             oidc,
             notifications,
             mcp_limits: McpRateLimiter::default(),
+            mailbox_locks: MailboxLocks::default(),
+            password_locks: MailboxLocks::default(),
         })
     }
 }

@@ -5,10 +5,10 @@ import { FileInput } from "@astryxdesign/core/FileInput"
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { Languages, Mail, Moon, Save, Sun, UserRound } from "lucide-react"
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 
-import { api } from "../../app/api"
-import type { PublicUser, SessionResponse } from "../../app/types"
+import { ApiError, api } from "../../app/api"
+import type { MailAccount, PublicUser, SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import type { AstryxThemeName } from "../../theme/astryxThemes"
 import { useTheme, type ThemeMode } from "../../theme/ThemeProvider"
@@ -16,8 +16,9 @@ import { SettingsPanelHeading } from "./SettingsPanelHeading"
 import type { SettingsNotice } from "./settingsTypes"
 import { ThemePicker } from "./ThemePicker"
 
-export function GeneralSettingsPanel({ session, onSessionChanged, onOpenAccounts, onNotice }: {
+export function GeneralSettingsPanel({ session, accounts, onSessionChanged, onOpenAccounts, onNotice }: {
   session: SessionResponse
+  accounts: MailAccount[]
   onSessionChanged: (session: SessionResponse) => void
   onOpenAccounts: () => void
   onNotice: (notice: SettingsNotice) => void
@@ -25,6 +26,7 @@ export function GeneralSettingsPanel({ session, onSessionChanged, onOpenAccounts
   const { locale, setLocale, t } = useI18n()
   const { mode, setMode, themeName, setThemeName } = useTheme()
   const [user, setUser] = useState(session.user)
+  const [username, setUsername] = useState(session.user.username)
   const [nickname, setNickname] = useState(session.user.nickname)
   const [busy, setBusy] = useState<"profile" | "avatar" | null>(null)
   const themeLabels: Record<AstryxThemeName, string> = {
@@ -36,6 +38,12 @@ export function GeneralSettingsPanel({ session, onSessionChanged, onOpenAccounts
     gothic: t("themeGothic"),
     y2k: t("themeY2k"),
   }
+
+  useEffect(() => {
+    setUser(session.user)
+    setUsername(session.user.username)
+    setNickname(session.user.nickname)
+  }, [session.user])
   const themeDescriptions: Record<AstryxThemeName, string> = {
     neutral: t("themeNeutralDescription"),
     stone: t("themeStoneDescription"),
@@ -48,6 +56,7 @@ export function GeneralSettingsPanel({ session, onSessionChanged, onOpenAccounts
 
   function publishUser(next: PublicUser) {
     setUser(next)
+    setUsername(next.username)
     setNickname(next.nickname)
     onSessionChanged({ ...session, user: next })
   }
@@ -56,10 +65,15 @@ export function GeneralSettingsPanel({ session, onSessionChanged, onOpenAccounts
     event.preventDefault()
     setBusy("profile")
     try {
-      publishUser(await api.updateProfile(nickname))
+      publishUser(await api.updateProfile(username === user.username ? null : username, nickname))
       onNotice({ key: "profileSaved" })
-    } catch {
-      onNotice({ key: "genericError", error: true })
+    } catch (error) {
+      const key = error instanceof ApiError && error.status === 409
+        ? "usernameUnavailable"
+        : error instanceof ApiError && error.status === 422
+          ? "profileInvalid"
+          : "genericError"
+      onNotice({ key, error: true })
     } finally {
       setBusy(null)
     }
@@ -120,15 +134,25 @@ export function GeneralSettingsPanel({ session, onSessionChanged, onOpenAccounts
           />
           {user.hasAvatar && <Button label={t("remove")} variant="ghost" isDisabled={busy === "avatar"} onClick={() => void removeAvatar()} />}
         </div>
-        <form className="settings-inline-form" onSubmit={saveProfile}>
-          <TextInput
-            label={t("nickname")}
-            value={nickname}
-            onChange={setNickname}
-            placeholder={t("nicknamePlaceholder")}
-            width="100%"
-          />
-          <Button label={t("save")} icon={<Save aria-hidden="true" />} type="submit" variant="secondary" isLoading={busy === "profile"} isDisabled={!nickname.trim() || busy === "profile"} />
+        <form className="settings-profile-form" onSubmit={saveProfile}>
+          <div className="settings-profile-fields">
+            <TextInput
+              label={t("profileUsername")}
+              value={username}
+              onChange={setUsername}
+              placeholder={t("profileUsernamePlaceholder")}
+              description={t("usernameRequirements")}
+              width="100%"
+            />
+            <TextInput
+              label={t("nickname")}
+              value={nickname}
+              onChange={setNickname}
+              placeholder={t("nicknamePlaceholder")}
+              width="100%"
+            />
+          </div>
+          <Button label={t("save")} icon={<Save aria-hidden="true" />} type="submit" variant="secondary" isLoading={busy === "profile"} isDisabled={username.trim().length < 2 || !nickname.trim() || busy === "profile"} />
         </form>
       </section>
 
@@ -155,8 +179,8 @@ export function GeneralSettingsPanel({ session, onSessionChanged, onOpenAccounts
           </SegmentedControl>
         </div>
         <div className="settings-choice-row account-entry">
-          <div><strong>{t("accounts")}</strong><small>{t("noAccountsDescription")}</small></div>
-          <Button label={t("accounts")} icon={<Mail aria-hidden="true" />} variant="secondary" onClick={onOpenAccounts} />
+          <div><strong>{t("accounts")}</strong><small>{accounts.length ? t("accountsConfigured", { count: accounts.length }) : t("noAccountsDescription")}</small></div>
+          <Button label={t("manageAccounts")} icon={<Mail aria-hidden="true" />} variant="secondary" onClick={onOpenAccounts} />
         </div>
       </section>
     </div>

@@ -201,6 +201,49 @@ test("attachment information is localized and opens the preview dialog", async (
   expect(screen.getByText("附件预览")).toBeInTheDocument()
 })
 
+test("HTML mail follows the resolved dark application theme", () => {
+  const previousMatchMedia = window.matchMedia
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn((query: string) => ({
+      matches: query === "(prefers-color-scheme: dark)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  })
+  const detail: MessageDetailType = {
+    ...messageDetail,
+    bodyHtml: '<table style="background:#fff"><tr><td style="color:#111">Dark-aware mail</td></tr></table>',
+  }
+
+  render(
+    <Providers>
+      <MessageDetail
+        message={detail}
+        thread={[detail]}
+        loading={false}
+        preferences={defaultMailPreferences}
+        onBack={vi.fn()}
+        onToggleStar={vi.fn()}
+        onToggleRead={vi.fn()}
+        onReply={vi.fn()}
+        onForward={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    </Providers>,
+  )
+
+  const source = screen.getByTitle("Project update").getAttribute("srcdoc") || ""
+  expect(source).toContain('content="dark"')
+  expect(source).toContain("background:#111624!important")
+  Object.defineProperty(window, "matchMedia", { configurable: true, value: previousMatchMedia })
+})
+
 test("the Astryx mail shell keeps search and message navigation immediate", async () => {
   stubWorkspaceApi()
   const user = userEvent.setup()
@@ -242,6 +285,21 @@ test("closing compose restores focus to its trigger", async () => {
 
   await waitFor(() => expect(screen.queryByRole("dialog", { name: /Compose|写邮件/ })).not.toBeInTheDocument())
   expect(compose).toHaveFocus()
+})
+
+test("mail accounts can be collapsed and compose has no stray shortcut glyph", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  renderWorkspace()
+  await screen.findByText("Project update")
+
+  expect(document.querySelector(".mail-navigation-compose kbd")).not.toBeInTheDocument()
+  expect(screen.getByRole("treeitem", { name: /Work/ })).toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: /Collapse mail account list|折叠邮件账户列表/ }))
+  expect(screen.queryByRole("treeitem", { name: /Work/ })).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: /Expand mail account list|展开邮件账户列表/ }))
+  expect(screen.getByRole("treeitem", { name: /Work/ })).toBeInTheDocument()
 })
 
 test("folder filtering reaches the existing messages API contract", async () => {

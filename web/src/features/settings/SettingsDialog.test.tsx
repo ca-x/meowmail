@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest"
 
 import { api } from "../../app/api"
 import { defaultMailPreferences } from "../../app/mailPreferences"
+import type { MailAccount } from "../../app/types"
 import { Providers } from "../../app/Providers"
 import { SettingsDialog } from "./SettingsDialog"
 
@@ -45,23 +46,91 @@ function mockSettingsLoad() {
   vi.spyOn(api, "cleanupRules").mockResolvedValue([])
 }
 
-function renderSettings() {
+const account: MailAccount = {
+  id: "account-1",
+  displayName: "Work",
+  email: "me@example.com",
+  username: "me@example.com",
+  imap: { host: "imap.example.com", port: 993, security: "tls" },
+  smtp: { host: "smtp.example.com", port: 465, security: "tls" },
+  proxy: { kind: "direct", hasPassword: false },
+  isDefault: true,
+  createdAt: 1,
+  updatedAt: 1,
+  hasPassword: true,
+}
+
+function renderSettings(accounts: MailAccount[] = [], onOpenAccounts = vi.fn(), onLoggedOut = vi.fn()) {
   render(
     <Providers>
       <SettingsDialog
         session={session}
-        accounts={[]}
+        accounts={accounts}
         mailPreferences={defaultMailPreferences}
         onMailPreferencesChanged={vi.fn()}
         onAccountsChanged={vi.fn()}
         onSessionChanged={vi.fn()}
         onLocked={vi.fn()}
+        onLoggedOut={onLoggedOut}
         onClose={vi.fn()}
-        onOpenAccounts={vi.fn()}
+        onOpenAccounts={onOpenAccounts}
       />
     </Providers>,
   )
 }
+
+test("configured mail accounts show a management summary instead of the first-account empty state", async () => {
+  const user = userEvent.setup()
+  mockSettingsLoad()
+  const onOpenAccounts = vi.fn()
+  renderSettings([account], onOpenAccounts)
+  await useEnglish(user)
+
+  expect(screen.getByText("Configured mail accounts: 1. Add or edit them here.")).toBeInTheDocument()
+  expect(screen.queryByText(/Add your first IMAP/i)).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Manage mail accounts" }))
+  expect(onOpenAccounts).toHaveBeenCalledOnce()
+})
+
+test("profile settings submit the editable username and nickname together", async () => {
+  const user = userEvent.setup()
+  mockSettingsLoad()
+  const update = vi.spyOn(api, "updateProfile").mockResolvedValue({
+    ...session.user,
+    username: "new.admin",
+    nickname: "New Admin",
+  })
+  renderSettings()
+  await useEnglish(user)
+  const profile = screen.getByRole("region", { name: "Profile" })
+  const username = within(profile).getByRole("textbox", { name: "Username" })
+  const nickname = within(profile).getByRole("textbox", { name: "Nickname" })
+  await user.clear(username)
+  await user.type(username, "New.Admin")
+  await user.clear(nickname)
+  await user.type(nickname, "New Admin")
+  await user.click(within(profile).getByRole("button", { name: "Save" }))
+
+  await waitFor(() => expect(update).toHaveBeenCalledWith("New.Admin", "New Admin"))
+})
+
+test("security settings expose a verified sign-in password change", async () => {
+  const user = userEvent.setup()
+  mockSettingsLoad()
+  const update = vi.spyOn(api, "updatePassword").mockResolvedValue(session.user)
+  const onLoggedOut = vi.fn()
+  renderSettings([], vi.fn(), onLoggedOut)
+  await useEnglish(user)
+  await user.click(screen.getByRole("tab", { name: "Security" }))
+  const password = await screen.findByRole("region", { name: "Sign-in password" })
+  await user.type(within(password).getByLabelText("Current password"), "old password")
+  await user.type(within(password).getByLabelText("New password"), "new password")
+  await user.type(within(password).getByLabelText("Confirm new password"), "new password")
+  await user.click(within(password).getByRole("button", { name: "Change sign-in password" }))
+
+  await waitFor(() => expect(update).toHaveBeenCalledWith("old password", "new password"))
+  expect(onLoggedOut).toHaveBeenCalledOnce()
+})
 
 async function useEnglish(user: ReturnType<typeof userEvent.setup>) {
   const english = screen.getByRole("radio", { name: "English" })

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -7,7 +9,7 @@ use crate::{
     AppState,
     accounts::AccountRepository,
     error::AppError,
-    mail::connect_imap_session,
+    mail::{connect_imap_session, delete_imap_uid_set},
     messages::{ComposeInput, MessageFilter, MessageRepository, ThreadingHeaders, send_outgoing},
 };
 
@@ -21,6 +23,7 @@ const MAX_DRAFT_RESULTS: u64 = 20;
 const MAX_THREAD_REFERENCES: usize = 50;
 const MAX_THREAD_REFERENCE_BYTES: usize = 8 * 1024;
 const MAX_MCP_BODY_BYTES: usize = 1024 * 1024;
+const MAILBOX_MUTATION_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub fn is_known(name: &str) -> bool {
     matches!(
@@ -489,11 +492,28 @@ async fn delete_email(
     access: &McpAccess,
     input: MessageIdInput,
 ) -> Result<Value, AppError> {
+    tokio::time::timeout(
+        MAILBOX_MUTATION_TIMEOUT,
+        delete_email_inner(state, access, input),
+    )
+    .await
+    .map_err(|_| AppError::Mail("IMAP delete operation timed out".into()))?
+}
+
+async fn delete_email_inner(
+    state: &AppState,
+    access: &McpAccess,
+    input: MessageIdInput,
+) -> Result<Value, AppError> {
     if !access.allow_delete {
         return Err(AppError::Forbidden);
     }
     let messages = MessageRepository::new(state.db.clone());
     let message = messages.get(access.user_id, input.message_id).await?;
+    let _mailbox_guard = state
+        .mailbox_locks
+        .try_lock(access.user_id, message.summary.account_id)
+        .ok_or(AppError::Conflict)?;
     let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
     let (account, secrets, proxy) = accounts
         .get_with_secrets(access.user_id, message.summary.account_id)
@@ -517,31 +537,20 @@ async fn delete_email(
         .try_collect::<Vec<_>>()
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
-    if !fetched.iter().any(|fetch| {
+    let exists = fetched.iter().any(|fetch| {
         fetch
             .uid
             .is_some_and(|value| i64::from(value) == message.summary.uid)
-    }) {
-        return Err(AppError::Conflict);
-    }
+    });
     let current_access = McpRepository::new(state.db.clone()).refresh(access).await?;
     if !current_access.allow_delete {
         return Err(AppError::Forbidden);
     }
-    session
-        .uid_store(&uid, "+FLAGS.SILENT (\\Deleted)")
-        .await
-        .map_err(|error| AppError::Mail(error.to_string()))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|error| AppError::Mail(error.to_string()))?;
-    session
-        .uid_expunge(&uid)
-        .await
-        .map_err(|error| AppError::Mail(error.to_string()))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|error| AppError::Mail(error.to_string()))?;
+    if exists {
+        delete_imap_uid_set(&mut session, &uid)
+            .await
+            .map_err(|error| AppError::Mail(error.to_string()))?;
+    }
     let _ = session.logout().await;
     messages
         .delete_local(access.user_id, input.message_id)
@@ -552,7 +561,11 @@ async fn delete_email(
         account_id = %message.summary.account_id,
         "MCP email permanently deleted"
     );
-    Ok(json!({ "deleted": true, "messageId": input.message_id }))
+    Ok(json!({
+        "deleted": true,
+        "messageId": input.message_id,
+        "serverCopyMissing": !exists,
+    }))
 }
 
 pub fn reply_subject(subject: &str) -> String {

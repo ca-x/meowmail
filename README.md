@@ -2,7 +2,7 @@
 
 妙邮（Meowmail）是一个自托管、多用户、多邮件账户的 Web 邮件客户端。后端使用 Rust、Axum、SeaORM 与 SQLite，前端使用 React 19 与 Vite。生产构建会把完整 Web 资源嵌入 Rust 可执行文件，运行时无需 Node.js 或独立静态文件服务器。
 
-`0.4.1` 修正内部弹窗未按 Astryx Layout 间距契约组合、导致关闭按钮越界的问题；`0.4.0` 使用 Astryx 重构完整前端，提供七套视觉主题，并升级邮件阅读、附件预览、设置中心与邮件账户配置体验。`0.1.x` 从未上线，因此仍不包含从旧单用户原型迁移的逻辑。
+`0.4.2` 修复删除邮件后被同步恢复的问题，加入邮件账户管理列表与侧栏账户折叠，允许进一步收窄邮件列表，并支持修改用户名、登录密码以及深色 HTML 邮件阅读；`0.4.1` 修正内部弹窗关闭按钮越界。`0.1.x` 从未上线，因此仍不包含从旧单用户原型迁移的逻辑。
 
 ## 界面预览
 
@@ -42,10 +42,10 @@
 - 每个邮件账户可独立使用直连、HTTP CONNECT 或 SOCKS5 代理，并支持代理认证
 - 本地账号、OIDC 或混合登录；无管理员时可让首位 OIDC 用户自动成为管理员
 - 可选个人 PIN 应用锁；PIN 只用于登录后的锁定/解锁，不是主登录凭据
-- 用户头像、昵称及个人设置；每个邮件账户可绑定独立的发件昵称与邮件签名
+- 用户头像、用户名、昵称及个人设置；支持验证当前密码后修改本地登录密码，并在改密后撤销全部登录会话；每个邮件账户可绑定独立的发件昵称与邮件签名
 - 阅读、发信和回复偏好，包括预览/列表模式、列表密度、会话模式、纯文本阅读、默认写信字体及主题前缀语言
 - 推广邮件可依据标准群发邮件头聚合显示，不使用宽泛关键词隐藏邮件
-- 邮件详情展示附件名称、类型与大小，并使用 `@file-viewer/web-full` 在桌面端和移动端预览常见文件
+- 邮件详情展示附件名称、类型与大小，并使用 `@file-viewer/web-full` 在桌面端和移动端预览常见文件；HTML 邮件阅读区跟随应用明暗主题
 - 每位用户可生成独立 MCP token，让 AI 在用户隔离范围内阅读邮件、创建/发送新邮件与回复；MCP 删除权限默认关闭
 - 加密配置导入/导出，可选择资料、邮件账户、通知、邮件保留与清理规则、邮件偏好及邮件签名
 - 管理员可选择“仅我的配置”或“所有用户”；普通用户只能操作自己的配置
@@ -107,11 +107,11 @@ OIDC 使用 Authorization Code、PKCE、state 与 nonce，并校验 ID Token 的
 正式版本同时发布 `linux/amd64` 与 `linux/arm64` 镜像：
 
 ```bash
-docker pull ghcr.io/ca-x/meowmail:0.4.1
-docker pull czyt/meowmail:0.4.1
+docker pull ghcr.io/ca-x/meowmail:0.4.2
+docker pull czyt/meowmail:0.4.2
 ```
 
-正式 tag 会生成 `v0.4.1`、`0.4.1`、`0.4`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
+正式 tag 会生成 `v0.4.2`、`0.4.2`、`0.4`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
 
 ```bash
 docker volume create meowmail-data
@@ -123,7 +123,7 @@ docker run --detach \
   --env MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME=admin \
   --env MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD='请换成足够长的随机密码' \
   --volume meowmail-data:/data \
-  ghcr.io/ca-x/meowmail:0.4.1
+  ghcr.io/ca-x/meowmail:0.4.2
 ```
 
 本地构建可把最后一个镜像名换成 `meowmail:local`：
@@ -333,7 +333,7 @@ cargo test --locked
 cargo build --release --locked
 ```
 
-推送 `v0.4.1` tag 后：
+推送 `v0.4.2` tag 后：
 
 - `.github/workflows/release.yml` 构建 Linux x86_64/aarch64、Windows x86_64、macOS x86_64/aarch64 压缩包，生成 `SHA256SUMS` 并发布 GitHub Release。
 - `.github/workflows/docker.yml` 构建 amd64/arm64 镜像，附带 provenance 与 SBOM，并同时发布到 `ghcr.io/ca-x/meowmail` 与 `czyt/meowmail`。

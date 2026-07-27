@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_imap::Session;
+use futures_util::TryStreamExt;
 use secrecy::ExposeSecret;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -47,6 +48,31 @@ pub async fn connect_session(
         .login(&account.username, secrets.password.expose_secret())
         .await
         .map_err(|(error, _)| anyhow!("IMAP authentication failed: {error}"))
+}
+
+pub async fn delete_uid_set(session: &mut Session<BoxStream>, uid_set: &str) -> Result<()> {
+    let capabilities = session
+        .capabilities()
+        .await
+        .context("IMAP CAPABILITY failed")?;
+    if !capabilities.has_str("UIDPLUS") {
+        bail!("IMAP server does not support safe UID deletion (UIDPLUS)");
+    }
+    session
+        .uid_store(uid_set, "+FLAGS.SILENT (\\Deleted)")
+        .await
+        .context("IMAP UID STORE failed")?
+        .try_collect::<Vec<_>>()
+        .await
+        .context("IMAP UID STORE response failed")?;
+    session
+        .uid_expunge(uid_set)
+        .await
+        .context("IMAP UID EXPUNGE failed")?
+        .try_collect::<Vec<_>>()
+        .await
+        .context("IMAP UID EXPUNGE response failed")?;
+    Ok(())
 }
 
 async fn starttls(mut stream: BoxStream, host: &str) -> Result<BoxStream> {

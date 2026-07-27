@@ -17,19 +17,24 @@ const defaultMcpSettings: McpSettings = {
   endpoint: "/mcp",
 }
 
-export function SecuritySettingsPanel({ session, onSessionChanged, onLocked, onClose, onNotice }: {
+export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLocked, onLoggedOut, onClose, onNotice }: {
+  isOpen: boolean
   session: SessionResponse
   onSessionChanged: (session: SessionResponse) => void
   onLocked: (session: SessionResponse) => void
+  onLoggedOut: () => void
   onClose: () => void
   onNotice: (notice: SettingsNotice) => void
 }) {
   const { locale, t } = useI18n()
   const [user, setUser] = useState(session.user)
   const [pin, setPin] = useState("")
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [mcpSettings, setMcpSettings] = useState<McpSettings>(defaultMcpSettings)
   const [mcpToken, setMcpToken] = useState<string | null>(null)
-  const [busy, setBusy] = useState<"pin" | "lock" | "mcp" | null>(null)
+  const [busy, setBusy] = useState<"password" | "pin" | "lock" | "mcp" | null>(null)
   const [mcpLoading, setMcpLoading] = useState(true)
 
   useEffect(() => {
@@ -38,6 +43,13 @@ export function SecuritySettingsPanel({ session, onSessionChanged, onLocked, onC
       .catch(() => onNotice({ key: "genericError", error: true }))
       .finally(() => setMcpLoading(false))
   }, [onNotice])
+
+  useEffect(() => {
+    if (isOpen) return
+    setCurrentPassword("")
+    setNewPassword("")
+    setConfirmPassword("")
+  }, [isOpen])
 
   function publishUser(next: PublicUser) {
     setUser(next)
@@ -54,6 +66,27 @@ export function SecuritySettingsPanel({ session, onSessionChanged, onLocked, onC
       onNotice({ key: "pinSaved" })
     } catch {
       onNotice({ key: "pinInvalid", error: true })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function savePassword(event: FormEvent) {
+    event.preventDefault()
+    if (newPassword !== confirmPassword) {
+      onNotice({ key: "passwordMismatch", error: true })
+      return
+    }
+    setBusy("password")
+    try {
+      await api.updatePassword(user.hasPassword ? currentPassword : null, newPassword)
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+      onClose()
+      onLoggedOut()
+    } catch {
+      onNotice({ key: "passwordInvalid", error: true })
     } finally {
       setBusy(null)
     }
@@ -142,6 +175,37 @@ export function SecuritySettingsPanel({ session, onSessionChanged, onLocked, onC
 
   return (
     <div className="settings-panel-stack">
+      <SettingsPanelHeading icon={<KeyRound />} title={t("loginPasswordSettings")} description={t("loginPasswordSettingsDescription")} />
+      <section className="settings-security-block" aria-label={t("loginPasswordSettings")}>
+        <form className="settings-password-form" onSubmit={savePassword}>
+          <div className="settings-password-fields">
+            {user.hasPassword && (
+              <label className="settings-native-field">
+                <span>{t("currentPassword")}</span>
+                <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder={t("currentPasswordPlaceholder")} />
+              </label>
+            )}
+            <label className="settings-native-field">
+              <span>{t("newPassword")}</span>
+              <input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder={t("newPasswordPlaceholder")} />
+            </label>
+            <label className="settings-native-field">
+              <span>{t("confirmPassword")}</span>
+              <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder={t("newPasswordPlaceholder")} />
+            </label>
+          </div>
+          <Button
+            label={user.hasPassword ? t("changeLoginPassword") : t("setLoginPassword")}
+            icon={<KeyRound aria-hidden="true" />}
+            type="submit"
+            variant="secondary"
+            isLoading={busy === "password"}
+            isDisabled={Boolean(busy) || newPassword.length < 8 || newPassword !== confirmPassword || (user.hasPassword && !currentPassword)}
+          />
+        </form>
+      </section>
+
+      <div className="settings-subsection-divider" />
       <SettingsPanelHeading icon={<ShieldCheck />} title={t("securityAndLock")} description={t("pinLockDescription")} />
       <section className="settings-security-block" aria-label={t("securityAndLock")}>
         <form className="settings-inline-form" onSubmit={savePin}>

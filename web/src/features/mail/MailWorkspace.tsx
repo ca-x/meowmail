@@ -7,6 +7,7 @@ import { useEffect, useState } from "react"
 import type { SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import { AccountDialog } from "../accounts/AccountDialog"
+import { AccountManagerDialog } from "../accounts/AccountManagerDialog"
 import { SettingsDialog } from "../settings/SettingsDialog"
 import { ComposeDialog } from "./ComposeDialog"
 import { MessageDetail as DetailPane } from "./MessageDetail"
@@ -25,7 +26,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
   const workspace = useMailWorkspace({ onLoggedOut })
   const viewportWidth = useViewportWidth()
   const navigationMax = viewportWidth < 1_400 ? 260 : 320
-  const detailMax = Math.max(440, Math.min(920, viewportWidth - navigationMax - 340))
+  const detailMax = Math.max(440, Math.min(920, viewportWidth - navigationMax - 300))
   const navigationPanel = useResizable({
     defaultSize: 248,
     minSizePx: 220,
@@ -173,6 +174,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
                   message={workspace.detail}
                   thread={workspace.thread}
                   loading={workspace.detailLoading}
+                  isDeleting={workspace.deleting}
                   preferences={workspace.mailPreferences}
                   onBack={() => workspace.setMobileView("list")}
                   onToggleStar={() => workspace.detail && void workspace.toggleStar(workspace.detail)}
@@ -208,11 +210,19 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
         onMailPreferencesChanged={workspace.setMailPreferences}
         onAccountsChanged={workspace.setAccounts}
         onLocked={onLocked}
+        onLoggedOut={onLoggedOut}
         onClose={() => workspace.setSettingsOpen(false)}
         onOpenAccounts={() => {
           workspace.setSettingsOpen(false)
-          workspace.setAccountDialog(workspace.activeAccount || null)
+          workspace.setAccountManagerOpen(true)
         }}
+      />
+      <AccountManagerDialog
+        isOpen={workspace.accountManagerOpen}
+        accounts={workspace.accounts}
+        onClose={() => workspace.setAccountManagerOpen(false)}
+        onChanged={workspace.loadAccounts}
+        onNotice={workspace.notify}
       />
       <AccountDialog
         isOpen={workspace.accountDialog !== undefined}

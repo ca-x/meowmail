@@ -13,12 +13,14 @@ import { useEffect, useMemo, useState } from "react"
 import { api } from "../../app/api"
 import type { MailAttachment, MailPreferences, MessageDetail as Detail } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
+import { useTheme } from "../../theme/ThemeProvider"
 import { AttachmentPreviewDialog } from "./AttachmentPreviewDialog"
 
-export function MessageDetail({ message, thread, loading, preferences, onBack, onToggleStar, onToggleRead, onReply, onForward, onDelete }: {
+export function MessageDetail({ message, thread, loading, isDeleting = false, preferences, onBack, onToggleStar, onToggleRead, onReply, onForward, onDelete }: {
   message: Detail | null
   thread: Detail[]
   loading: boolean
+  isDeleting?: boolean
   preferences: MailPreferences
   onBack: () => void
   onToggleStar: () => void
@@ -28,9 +30,10 @@ export function MessageDetail({ message, thread, loading, preferences, onBack, o
   onDelete: () => void
 }) {
   const { locale, t } = useI18n()
+  const { resolved: themeMode } = useTheme()
   const [view, setView] = useState<"html" | "text">("html")
   const [previewAttachment, setPreviewAttachment] = useState<MailAttachment | null>(null)
-  const srcDoc = useMemo(() => message?.bodyHtml ? emailDocument(message.bodyHtml) : "", [message?.bodyHtml])
+  const srcDoc = useMemo(() => message?.bodyHtml ? emailDocument(message.bodyHtml, themeMode) : "", [message?.bodyHtml, themeMode])
 
   useEffect(() => {
     setView(preferences.plainTextReading ? "text" : "html")
@@ -62,7 +65,7 @@ export function MessageDetail({ message, thread, loading, preferences, onBack, o
           <>
             <IconButton label={message.isRead ? t("markUnread") : t("markRead")} icon={<MailOpen aria-hidden="true" />} variant="ghost" onClick={onToggleRead} />
             <IconButton className={message.isStarred ? "star-active" : undefined} label={message.isStarred ? t("unstar") : t("star")} icon={<Star fill={message.isStarred ? "currentColor" : "none"} aria-hidden="true" />} variant="ghost" onClick={onToggleStar} />
-            <IconButton className="danger-text" label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="ghost" onClick={onDelete} />
+            <IconButton className="danger-text" label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="ghost" isDisabled={isDeleting} onClick={onDelete} />
           </>
         }
       />
@@ -171,7 +174,10 @@ function formatFileSize(size: number, locale: string) {
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(value)} ${units[unit]}`
 }
 
-function emailDocument(html: string) {
+function emailDocument(html: string, themeMode: "light" | "dark") {
   const readingFont = `Charter, "Iowan Old Style", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", Georgia, serif`
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src data:"><meta name="color-scheme" content="light"><style>html{background:#fff;color:#202124;font:15px/1.62 ${readingFont}}body{max-width:72ch;margin:0 auto;padding:24px 20px 56px;overflow-wrap:anywhere;text-rendering:optimizeLegibility}p,li{line-height:1.68}h1,h2,h3,h4{line-height:1.25;text-wrap:balance}img{max-width:100%;height:auto}a{color:#1769e0;text-underline-offset:2px}pre,code{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}blockquote{border-left:3px solid #d9dce2;margin-left:0;padding-left:16px;color:#656b76}@media(max-width:640px){html{font-size:16px}body{padding:18px 16px 44px}}</style></head><body>${html}</body></html>`
+  const darkStyles = themeMode === "dark"
+    ? `html,body{background:#111624!important;color:#e6e9f2!important;color-scheme:dark}body :where(table,tbody,thead,tfoot,tr,td,th,div,section,article,main,header,footer,p,span,h1,h2,h3,h4,h5,h6){background-color:transparent!important;color:inherit!important}a{color:#8ab4ff!important}blockquote{border-color:#495169!important;color:#b8bfd0!important}hr{border-color:#343b4f!important}pre,code{background:#191f2f!important;color:#edf0f7!important}`
+    : `html,body{background:#fff;color:#202124;color-scheme:light}`
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src data:"><meta name="color-scheme" content="${themeMode}"><style>html{font:15px/1.62 ${readingFont}}${darkStyles}body{max-width:72ch;margin:0 auto;padding:24px 20px 56px;overflow-wrap:anywhere;text-rendering:optimizeLegibility}p,li{line-height:1.68}h1,h2,h3,h4{line-height:1.25;text-wrap:balance}img{max-width:100%;height:auto}a{text-underline-offset:2px}pre,code{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}blockquote{border-left:3px solid #d9dce2;margin-left:0;padding-left:16px;color:#656b76}@media(max-width:640px){html{font-size:16px}body{padding:18px 16px 44px}}</style></head><body>${html}</body></html>`
 }

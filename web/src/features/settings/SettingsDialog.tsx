@@ -23,7 +23,7 @@ const tabs: Array<{ value: SettingsTab; label: "settingsGeneral" | "settingsMail
   { value: "data", label: "settingsData", icon: Database },
 ]
 
-export function SettingsDialog({ isOpen = true, session, accounts, mailPreferences, onSessionChanged, onMailPreferencesChanged, onAccountsChanged, onLocked, onClose, onOpenAccounts }: {
+export function SettingsDialog({ isOpen = true, session, accounts, mailPreferences, onSessionChanged, onMailPreferencesChanged, onAccountsChanged, onLocked, onLoggedOut, onClose, onOpenAccounts }: {
   isOpen?: boolean
   session: SessionResponse
   accounts: MailAccount[]
@@ -32,6 +32,7 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
   onMailPreferencesChanged: (preferences: MailPreferences) => void
   onAccountsChanged: (accounts: MailAccount[]) => void
   onLocked: (session: SessionResponse) => void
+  onLoggedOut: () => void
   onClose: () => void
   onOpenAccounts: () => void
 }) {
@@ -95,10 +96,10 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
         }
         content={
           <LayoutContent className="settings-dialog-content" padding={0} isScrollable>
-            {visitedTabs.has("general") && <SettingsPanel tab="general" activeTab={activeTab}><GeneralSettingsPanel session={session} onSessionChanged={onSessionChanged} onOpenAccounts={onOpenAccounts} onNotice={setNotice} /></SettingsPanel>}
+            {visitedTabs.has("general") && <SettingsPanel tab="general" activeTab={activeTab}><GeneralSettingsPanel session={session} accounts={accounts} onSessionChanged={onSessionChanged} onOpenAccounts={onOpenAccounts} onNotice={setNotice} /></SettingsPanel>}
             {visitedTabs.has("mail") && <SettingsPanel tab="mail" activeTab={activeTab}><MailSettingsPanel accounts={accounts} mailPreferences={mailPreferences} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={setNotice} /></SettingsPanel>}
             {visitedTabs.has("automation") && <SettingsPanel tab="automation" activeTab={activeTab}><AutomationSettingsPanel accounts={accounts} onNotice={setNotice} /></SettingsPanel>}
-            {visitedTabs.has("security") && <SettingsPanel tab="security" activeTab={activeTab}><SecuritySettingsPanel session={session} onSessionChanged={onSessionChanged} onLocked={onLocked} onClose={onClose} onNotice={setNotice} /></SettingsPanel>}
+            {visitedTabs.has("security") && <SettingsPanel tab="security" activeTab={activeTab}><SecuritySettingsPanel isOpen={isOpen} session={session} onSessionChanged={onSessionChanged} onLocked={onLocked} onLoggedOut={onLoggedOut} onClose={onClose} onNotice={setNotice} /></SettingsPanel>}
             {visitedTabs.has("data") && <SettingsPanel tab="data" activeTab={activeTab}><DataSettingsPanel session={session} onSessionChanged={onSessionChanged} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={setNotice} /></SettingsPanel>}
           </LayoutContent>
         }

@@ -44,5 +44,13 @@ pub struct PublicUser {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserProfile {
+    pub username: Option<String>,
     pub nickname: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPasswordInput {
+    pub current_password: Option<String>,
+    pub new_password: String,
 }

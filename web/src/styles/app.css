@@ -271,6 +271,8 @@ button { touch-action: manipulation; }
 .conversation-message pre { margin: 0; padding: 13px 15px 16px 50px; border-top: 1px solid var(--border); background: var(--bg-subtle); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); font: 400 11px/1.65 var(--font-sans); }
 .message-body { min-height: 420px; margin-top: 20px; padding: 30px; border: 1px solid var(--border); border-radius: var(--radius-card); background: #fff; box-shadow: var(--shadow-low); color: #202124; }
 .message-body iframe { display: block; width: 100%; min-height: 540px; border: 0; background: #fff; }
+:root[data-theme="dark"] .message-body { background: #111624; color: #e6e9f2; }
+:root[data-theme="dark"] .message-body iframe { background: #111624; }
 .message-body pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 400 15px/1.72 var(--font-sans); }
 .attachment-section { margin-top: 22px; }
 .attachment-section > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 9px; }
@@ -335,6 +337,25 @@ button { touch-action: manipulation; }
 .account-dialog-actions > button:first-child { min-width: 112px; }
 .account-dialog-actions > button:last-child { min-width: 76px; }
 
+/* Account manager */
+.account-manager-layout { width: 100%; height: min(620px, calc(100dvh - 32px)); min-height: 420px; }
+.account-manager-content { min-height: 0; overflow: auto; background: var(--bg-subtle); }
+.account-manager-list { display: grid; gap: 8px; margin: 0; padding: 18px; list-style: none; }
+.account-manager-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; width: 100%; min-height: 66px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg-surface); color: var(--text-primary); cursor: pointer; text-align: left; transition: border-color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out); }
+.account-manager-row:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+.account-manager-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.account-manager-copy { display: grid; min-width: 0; gap: 3px; }
+.account-manager-copy strong, .account-manager-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-manager-copy strong { font-size: 13px; }
+.account-manager-copy small { color: var(--text-tertiary); font-size: 10px; }
+.account-manager-row > svg { width: 16px; height: 16px; color: var(--text-tertiary); }
+.account-manager-empty { display: grid; min-height: 360px; place-content: center; justify-items: center; padding: 36px; text-align: center; }
+.account-manager-empty > span { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 20px; background: var(--accent-soft); color: var(--accent); }
+.account-manager-empty > span svg { width: 26px; height: 26px; }
+.account-manager-empty h3 { margin: 18px 0 5px; font: 680 17px/1.3 var(--font-display); }
+.account-manager-empty p { max-width: 360px; margin: 0 0 18px; color: var(--text-tertiary); font-size: 11px; line-height: 1.55; }
+.account-manager-footer > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+
 .settings-dialog { position: relative; }
 .settings-dialog-layout { width: 100%; height: min(780px, calc(100dvh - 32px)); min-height: min(680px, calc(100dvh - 32px)); }
 .settings-dialog-header { background: color-mix(in srgb, var(--bg-elevated) 92%, transparent); backdrop-filter: blur(24px) saturate(160%); }
@@ -374,7 +395,11 @@ button { touch-action: manipulation; }
 .settings-profile-summary strong { font-size: 15px; }
 .settings-profile-summary span { margin-bottom: 5px; color: var(--text-secondary); font-size: 11px; }
 .settings-avatar-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.settings-profile-form { display: grid; justify-items: end; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); }
+.settings-profile-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; }
 .settings-inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border); }
+.settings-password-form { display: grid; justify-items: end; gap: 14px; }
+.settings-password-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; }
 .settings-choice-list { gap: 0; padding-block: 4px; }
 .settings-choice-row { display: flex; align-items: center; justify-content: space-between; gap: 22px; min-height: 66px; padding: 12px 2px; }
 .settings-choice-row + .settings-choice-row { border-top: 1px solid var(--border); }
@@ -651,8 +676,8 @@ button { touch-action: manipulation; }
   .settings-tab-panel { width: min(100% - 28px, 760px); padding: 24px 0 56px; }
   .settings-panel-stack { gap: 15px; }
   .settings-profile-block, .settings-choice-list, .settings-security-block, .settings-mcp-block, .settings-data-block, .settings-automation-block, .settings-notification-block { padding: 15px; border-radius: 14px; }
-  .settings-avatar-actions, .settings-inline-form, .settings-transfer-actions { grid-template-columns: 1fr; }
-  .settings-inline-form > button, .settings-transfer-actions > button { width: 100%; }
+  .settings-avatar-actions, .settings-profile-fields, .settings-password-fields, .settings-inline-form, .settings-transfer-actions { grid-template-columns: 1fr; }
+  .settings-profile-form > button, .settings-password-form > button, .settings-inline-form > button, .settings-transfer-actions > button { width: 100%; }
   .settings-choice-row, .settings-status-row { align-items: stretch; flex-direction: column; }
   .settings-choice-row [role="radiogroup"], .settings-status-row [role="radiogroup"] { width: 100%; }
   .settings-theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -668,6 +693,10 @@ button { touch-action: manipulation; }
   .mail-preference-check-grid, .mail-compose-style-grid { grid-template-columns: 1fr; }
   .mail-signature-toolbar { grid-template-columns: 1fr; }
   .mail-signature-toolbar > button { width: 100%; }
+  .account-manager-layout { height: calc(100dvh - max(24px, calc(env(safe-area-inset-top) + 12px))); min-height: 0; }
+  .account-manager-list { padding: 12px; }
+  .account-manager-row { grid-template-columns: 36px minmax(0, 1fr) 16px; }
+  .account-manager-default { display: none; }
   .mail-identity-row { grid-template-columns: minmax(0, 1fr) 40px; align-items: end; padding-block: 12px; }
   .mail-identity-account { grid-column: 1 / -1; }
   .mail-identity-row > div:nth-child(2), .mail-identity-row > div:nth-child(3) { grid-column: 1; }
@@ -743,12 +772,17 @@ button { touch-action: manipulation; }
 .active-account-summary > svg { width: 15px; color: var(--text-tertiary); }
 .mail-navigation-compose { padding: 2px 14px 13px; }
 .mail-navigation-compose button { min-height: 42px; }
-.mail-navigation-compose [role="img"] { margin-inline-start: auto; opacity: .68; }
+.mail-navigation-compose [role="img"] { margin-inline-start: 0; opacity: .88; }
 .mail-navigation-folders { padding: 0 8px; }
 .mail-navigation-folders svg, .mail-navigation-accounts svg { width: 16px; height: 16px; }
 .mail-navigation-accounts { min-height: 0; flex: 1; margin-top: 14px; padding: 0 8px; overflow-y: auto; overscroll-behavior: contain; }
+.mail-navigation-accounts.is-collapsed { flex: 0 0 auto; overflow: visible; }
 .mail-navigation-section-heading { display: flex; align-items: center; justify-content: space-between; min-height: 34px; padding-inline: 10px 4px; color: var(--text-tertiary); }
-.mail-navigation-section-heading > span { font-size: 10px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.mail-navigation-section-toggle { display: inline-flex; min-width: 0; align-items: center; gap: 5px; padding: 5px 4px 5px 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.mail-navigation-section-toggle > span:not(.visually-hidden) { overflow: hidden; font-size: 10px; font-weight: 750; letter-spacing: .07em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.mail-navigation-section-toggle > svg { flex: 0 0 auto; transition: transform var(--duration-fast) var(--ease-out); }
+.mail-navigation-accounts.is-collapsed .mail-navigation-section-toggle > svg { transform: rotate(-90deg); }
+.mail-navigation-section-toggle:focus-visible { border-radius: 6px; outline: 2px solid var(--accent); outline-offset: 2px; }
 .default-account-dot { display: block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .mail-navigation-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 9px 10px 0; border-top: 1px solid var(--border); }
 .mail-navigation-footer button { justify-content: center; color: var(--text-secondary); }

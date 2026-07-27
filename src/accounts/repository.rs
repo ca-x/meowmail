@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     db::{
         Database,
-        entities::{mail_account, signature},
+        entities::{mail_account, message, signature},
     },
     error::AppError,
     security::CredentialVault,
@@ -154,6 +154,11 @@ impl AccountRepository {
         self.ensure_email_available(user_id, &input.email, Some(id))
             .await?;
         let existing = self.get_model(user_id, id).await?;
+        let mailbox_changed = existing.email != input.email
+            || existing.username != input.username
+            || existing.imap_host != input.imap.host
+            || existing.imap_port != i32::from(input.imap.port)
+            || existing.imap_security != input.imap.security.as_str();
         let password_cipher = match input.password.as_deref() {
             Some(password) => self.vault.seal(password).map_err(AppError::internal)?,
             None => existing.password_cipher.clone(),
@@ -189,6 +194,13 @@ impl AccountRepository {
         active.is_default = Set(input.is_default);
         active.updated_at = Set(OffsetDateTime::now_utc().unix_timestamp());
         active.update(&transaction).await?;
+        if mailbox_changed {
+            message::Entity::delete_many()
+                .filter(message::Column::AccountId.eq(id.to_string()))
+                .filter(message::Column::UserId.eq(user_id.to_string()))
+                .exec(&transaction)
+                .await?;
+        }
         if !input.is_default && existing.is_default {
             ensure_default(&transaction, user_id).await?;
         }

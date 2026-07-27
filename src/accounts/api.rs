@@ -65,6 +65,10 @@ async fn update(
     mutation: MutationSession,
     Json(input): Json<AccountInput>,
 ) -> Result<Json<MailAccount>, AppError> {
+    let _mailbox_guard = state
+        .mailbox_locks
+        .try_lock(mutation.0.user_id, id)
+        .ok_or(AppError::Conflict)?;
     Ok(Json(
         repository(&state)
             .update(mutation.0.user_id, id, input)
@@ -77,6 +81,10 @@ async fn remove(
     Path(id): Path<Uuid>,
     mutation: MutationSession,
 ) -> Result<axum::http::StatusCode, AppError> {
+    let _mailbox_guard = state
+        .mailbox_locks
+        .try_lock(mutation.0.user_id, id)
+        .ok_or(AppError::Conflict)?;
     repository(&state).delete(mutation.0.user_id, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -86,6 +94,10 @@ async fn test_saved(
     Path(id): Path<Uuid>,
     mutation: MutationSession,
 ) -> Result<Json<ConnectionTestResponse>, AppError> {
+    let _mailbox_guard = state
+        .mailbox_locks
+        .try_lock(mutation.0.user_id, id)
+        .ok_or(AppError::Conflict)?;
     let (account, secrets, proxy) = repository(&state)
         .get_with_secrets(mutation.0.user_id, id)
         .await?;

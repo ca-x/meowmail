@@ -16,13 +16,14 @@ use crate::{
 use super::migration::{
     ExportRequest, ImportReport, ImportRequest, MigrationArchive, MigrationService,
 };
-use super::{PublicUser, UserProfile, UserRepository};
+use super::{PublicUser, UserPasswordInput, UserProfile, UserRepository};
 
 const MAX_AVATAR_SIZE: usize = 512 * 1024;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/users/me", get(profile).patch(update_profile))
+        .route("/users/me/password", axum::routing::put(update_password))
         .route(
             "/users/me/avatar",
             get(avatar).put(update_avatar).delete(remove_avatar),
@@ -53,9 +54,33 @@ async fn update_profile(
 ) -> Result<Json<PublicUser>, AppError> {
     Ok(Json(
         UserRepository::new(state.db)
-            .update_nickname(mutation.0.user_id, &input.nickname)
+            .update_profile(
+                mutation.0.user_id,
+                input.username.as_deref(),
+                &input.nickname,
+            )
             .await?,
     ))
+}
+
+async fn update_password(
+    State(state): State<AppState>,
+    mutation: MutationSession,
+    Json(input): Json<UserPasswordInput>,
+) -> Result<Json<PublicUser>, AppError> {
+    let _password_guard = state
+        .password_locks
+        .try_lock(mutation.0.user_id, mutation.0.user_id)
+        .ok_or(AppError::RateLimited)?;
+    let user = UserRepository::new(state.db)
+        .update_password(
+            mutation.0.user_id,
+            input.current_password.as_deref(),
+            &input.new_password,
+        )
+        .await?;
+    state.sessions.revoke_user(mutation.0.user_id);
+    Ok(Json(user))
 }
 
 async fn avatar(

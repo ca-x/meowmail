@@ -87,10 +87,15 @@ export const api = {
     }),
   removePin: () => request<PublicUser>("/api/v1/auth/pin", { method: "DELETE" }),
   profile: () => request<PublicUser>("/api/v1/users/me"),
-  updateProfile: (nickname: string) =>
+  updateProfile: (username: string | null, nickname: string) =>
     request<PublicUser>("/api/v1/users/me", {
       method: "PATCH",
-      body: JSON.stringify({ nickname }),
+      body: JSON.stringify({ username, nickname }),
+    }),
+  updatePassword: (currentPassword: string | null, newPassword: string) =>
+    request<PublicUser>("/api/v1/users/me/password", {
+      method: "PUT",
+      body: JSON.stringify({ currentPassword, newPassword }),
     }),
   updateAvatar: (file: File) =>
     request<PublicUser>("/api/v1/users/me/avatar", {
