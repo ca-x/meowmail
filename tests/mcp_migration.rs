@@ -76,7 +76,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     for table in ["mcp_tokens", "email_drafts", "message_attachments"] {
         let row = database
             .connection()
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Sqlite,
                 "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = ?",
                 [table.into()],
@@ -94,7 +94,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     ] {
         let row = database
             .connection()
-            .query_one(Statement::from_string(
+            .query_one_raw(Statement::from_string(
                 DatabaseBackend::Sqlite,
                 format!(
                     "SELECT COUNT(*) AS count FROM pragma_table_info('{table}') WHERE name = '{column}'"
@@ -107,7 +107,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     }
     let preserved = database
         .connection()
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT COUNT(*) AS count FROM messages WHERE id = 'message-1'",
         ))
@@ -117,7 +117,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     assert_eq!(preserved.try_get::<i64>("", "count").unwrap(), 1);
     let legacy_thread = database
         .connection()
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT thread_key FROM messages WHERE id = 'message-1'",
         ))
@@ -130,7 +130,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     );
     let fetch_limit = database
         .connection()
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT sync_fetch_limit FROM mail_settings WHERE user_id = 'user-1'",
         ))
@@ -145,7 +145,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     );
     let migration = database
         .connection()
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT version FROM seaql_migrations WHERE version = 'm20260727_000002_mcp_access'",
         ))
@@ -158,7 +158,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     );
     let hardening = database
         .connection()
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT version FROM seaql_migrations WHERE version = 'm20260727_000003_mcp_hardening'",
         ))
@@ -171,7 +171,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     );
     let fetch_limit_migration = database
         .connection()
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT version FROM seaql_migrations WHERE version = 'm20260727_000004_sync_fetch_limit'",
         ))
@@ -186,7 +186,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     );
     let integrity = database
         .connection()
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT version FROM seaql_migrations WHERE version = 'm20260727_000005_mcp_integrity'",
         ))
@@ -199,7 +199,7 @@ async fn existing_0_2_database_receives_additive_0_3_schema() {
     );
     let attachments = database
         .connection()
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "SELECT version FROM seaql_migrations WHERE version = 'm20260727_000006_attachment_preview'",
         ))

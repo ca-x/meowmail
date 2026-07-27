@@ -175,7 +175,7 @@ impl MessageRepository {
                 message_attachment::Column::Size,
             ])
             .column_as(
-                Expr::col(message_attachment::Column::Content).is_not_null(),
+                sea_orm::ExprTrait::is_not_null(Expr::col(message_attachment::Column::Content)),
                 "available",
             )
             .filter(message_attachment::Column::MessageId.eq(&model.id))

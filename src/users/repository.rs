@@ -335,7 +335,7 @@ async fn try_claim_first_admin(
         return Ok(false);
     }
     let result = transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             "INSERT OR IGNORE INTO system_state(key, value) VALUES('first_admin_user_id', ?)",
             [user_id.to_string().into()],
@@ -349,7 +349,7 @@ async fn claim_first_admin(
     user_id: Uuid,
 ) -> Result<(), AppError> {
     transaction
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             "INSERT OR IGNORE INTO system_state(key, value) VALUES('first_admin_user_id', ?)",
             [user_id.to_string().into()],
