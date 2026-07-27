@@ -105,3 +105,23 @@ test("clearing a required server port invalidates the account draft", async () =
   expect(save).toBeDisabled()
   expect(imapPort).toHaveValue(null)
 })
+
+test.each([
+  ["QQ Mail", "imap.qq.com", "smtp.qq.com", 465],
+  ["163 Mail", "imap.163.com", "smtp.163.com", 465],
+  ["Tencent Exmail", "imap.exmail.qq.com", "smtp.exmail.qq.com", 465],
+  ["Alibaba Mail", "imap.qiye.aliyun.com", "smtp.qiye.aliyun.com", 465],
+] as const)("applies the %s server preset", async (label, imapHost, smtpHost, smtpPort) => {
+  const user = userEvent.setup()
+  renderDialog()
+
+  const dialog = screen.getByRole("dialog", { name: "Add mail account" })
+  await user.click(within(dialog).getByRole("button", { name: label }))
+
+  const imap = within(dialog).getByRole("region", { name: "IMAP incoming server" })
+  const smtp = within(dialog).getByRole("region", { name: "SMTP outgoing server" })
+  expect(within(imap).getByRole("textbox", { name: /Host/ })).toHaveValue(imapHost)
+  expect(within(imap).getByRole("spinbutton", { name: /Port/ })).toHaveValue(993)
+  expect(within(smtp).getByRole("textbox", { name: /Host/ })).toHaveValue(smtpHost)
+  expect(within(smtp).getByRole("spinbutton", { name: /Port/ })).toHaveValue(smtpPort)
+})

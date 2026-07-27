@@ -21,6 +21,35 @@ interface Props {
   onDeleted: () => void
 }
 
+type AccountPreset = "gmail" | "outlook" | "qq" | "netease163" | "tencentExmail" | "aliyunEnterprise" | "custom"
+
+const serverPresets: Record<Exclude<AccountPreset, "custom">, Pick<AccountInput, "imap" | "smtp">> = {
+  gmail: {
+    imap: { host: "imap.gmail.com", port: 993, security: "tls" },
+    smtp: { host: "smtp.gmail.com", port: 465, security: "tls" },
+  },
+  outlook: {
+    imap: { host: "outlook.office365.com", port: 993, security: "tls" },
+    smtp: { host: "smtp.office365.com", port: 587, security: "starttls" },
+  },
+  qq: {
+    imap: { host: "imap.qq.com", port: 993, security: "tls" },
+    smtp: { host: "smtp.qq.com", port: 465, security: "tls" },
+  },
+  netease163: {
+    imap: { host: "imap.163.com", port: 993, security: "tls" },
+    smtp: { host: "smtp.163.com", port: 465, security: "tls" },
+  },
+  tencentExmail: {
+    imap: { host: "imap.exmail.qq.com", port: 993, security: "tls" },
+    smtp: { host: "smtp.exmail.qq.com", port: 465, security: "tls" },
+  },
+  aliyunEnterprise: {
+    imap: { host: "imap.qiye.aliyun.com", port: 993, security: "tls" },
+    smtp: { host: "smtp.qiye.aliyun.com", port: 465, security: "tls" },
+  },
+}
+
 function emptyInput(): AccountInput {
   return {
     displayName: "",
@@ -67,7 +96,7 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
     setMessage(null)
   }, [account, isOpen])
 
-  function preset(kind: "gmail" | "outlook" | "custom") {
+  function preset(kind: AccountPreset, displayName: string) {
     if (kind === "custom") {
       setInput((value) => ({
         ...value,
@@ -76,15 +105,12 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
       }))
       return
     }
+    const servers = serverPresets[kind]
     setInput((value) => ({
       ...value,
-      displayName: value.displayName || (kind === "gmail" ? "Gmail" : "Outlook"),
-      imap: kind === "gmail"
-        ? { host: "imap.gmail.com", port: 993, security: "tls" }
-        : { host: "outlook.office365.com", port: 993, security: "tls" },
-      smtp: kind === "gmail"
-        ? { host: "smtp.gmail.com", port: 465, security: "tls" }
-        : { host: "smtp.office365.com", port: 587, security: "starttls" },
+      displayName: value.displayName || displayName,
+      imap: { ...servers.imap },
+      smtp: { ...servers.smtp },
     }))
   }
 
@@ -156,7 +182,7 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
         onOpenChange={(open) => { if (!open && !isBusy) onClose() }}
         purpose="form"
         width={820}
-        maxHeight="92dvh"
+        maxHeight="calc(100dvh - 24px)"
         padding={0}
         aria-label={account ? t("editAccount") : t("addAccount")}
       >
@@ -178,10 +204,18 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
               <LayoutContent className="account-dialog-content" padding={0} isScrollable>
                 <div className="account-dialog-sections">
                   <section className="account-form-section account-preset-section" aria-label={t("preset")}>
+                    <div className="account-preset-heading">
+                      <strong>{t("preset")}</strong>
+                      <small>{t("presetDescription")}</small>
+                    </div>
                     <div className="account-preset-row">
-                      <Button label="Gmail" variant="secondary" size="sm" onClick={() => preset("gmail")} />
-                      <Button label="Outlook" variant="secondary" size="sm" onClick={() => preset("outlook")} />
-                      <Button label={t("custom")} icon={<Server aria-hidden="true" />} variant="secondary" size="sm" onClick={() => preset("custom")} />
+                      <Button label="Gmail" variant="secondary" size="sm" onClick={() => preset("gmail", "Gmail")} />
+                      <Button label="Outlook" variant="secondary" size="sm" onClick={() => preset("outlook", "Outlook")} />
+                      <Button label={t("providerQqMail")} variant="secondary" size="sm" onClick={() => preset("qq", t("providerQqMail"))} />
+                      <Button label={t("provider163Mail")} variant="secondary" size="sm" onClick={() => preset("netease163", t("provider163Mail"))} />
+                      <Button label={t("providerTencentExmail")} variant="secondary" size="sm" onClick={() => preset("tencentExmail", t("providerTencentExmail"))} />
+                      <Button label={t("providerAliyunMail")} variant="secondary" size="sm" onClick={() => preset("aliyunEnterprise", t("providerAliyunMail"))} />
+                      <Button label={t("custom")} icon={<Server aria-hidden="true" />} variant="secondary" size="sm" onClick={() => preset("custom", t("custom"))} />
                     </div>
                   </section>
 
@@ -203,8 +237,8 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
                   {account && <Button label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="destructive" isDisabled={isBusy} onClick={requestDelete} />}
                 </span>
                 <span className="account-dialog-actions">
-                  <Button label={busy === "test" ? t("testing") : t("testConnection")} variant="secondary" isLoading={busy === "test"} isDisabled={isBusy || !isComplete} onClick={() => void testConnection()} />
-                  <Button label={busy === "save" ? t("saving") : t("save")} variant="primary" type="submit" isLoading={busy === "save"} isDisabled={isBusy || !isComplete} />
+                  <Button label={busy === "test" ? t("testing") : t("testConnection")} variant="secondary" size="lg" isLoading={busy === "test"} isDisabled={isBusy || !isComplete} onClick={() => void testConnection()} />
+                  <Button label={busy === "save" ? t("saving") : t("save")} variant="primary" size="lg" type="submit" isLoading={busy === "save"} isDisabled={isBusy || !isComplete} />
                 </span>
               </LayoutFooter>
             }

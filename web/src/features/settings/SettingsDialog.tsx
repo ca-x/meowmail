@@ -52,7 +52,7 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
       onOpenChange={(open) => { if (!open) onClose() }}
       purpose="form"
       width={920}
-      maxHeight="92dvh"
+      maxHeight="calc(100dvh - 24px)"
       padding={0}
       aria-label={t("settings")}
     >
@@ -104,7 +104,7 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
         footer={
           <LayoutFooter className="settings-dialog-footer" padding={3} hasDivider>
             <span>{t("settingsSavedImmediately")}</span>
-            <Button label={t("done")} variant="secondary" onClick={onClose} />
+            <Button label={t("done")} variant="primary" size="lg" onClick={onClose} />
           </LayoutFooter>
         }
       />

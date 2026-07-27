@@ -2,7 +2,7 @@
 
 妙邮（Meowmail）是一个自托管、多用户、多邮件账户的 Web 邮件客户端。后端使用 Rust、Axum、SeaORM 与 SQLite，前端使用 React 19 与 Vite。生产构建会把完整 Web 资源嵌入 Rust 可执行文件，运行时无需 Node.js 或独立静态文件服务器。
 
-`0.3.0` 在首个正式版本 `0.2.0` 的多用户基础上新增个人 MCP 接入；`0.1.x` 从未上线，因此仍不包含从旧单用户原型迁移的逻辑。
+`0.4.0` 使用 Astryx 重构完整前端，提供七套视觉主题，并升级邮件阅读、附件预览、设置中心与邮件账户配置体验；`0.3.0` 在多用户基础上加入了个人 MCP 接入。`0.1.x` 从未上线，因此仍不包含从旧单用户原型迁移的逻辑。
 
 ## 界面预览
 
@@ -107,11 +107,11 @@ OIDC 使用 Authorization Code、PKCE、state 与 nonce，并校验 ID Token 的
 正式版本同时发布 `linux/amd64` 与 `linux/arm64` 镜像：
 
 ```bash
-docker pull ghcr.io/ca-x/meowmail:0.3.0
-docker pull czyt/meowmail:0.3.0
+docker pull ghcr.io/ca-x/meowmail:0.4.0
+docker pull czyt/meowmail:0.4.0
 ```
 
-正式 tag 会生成 `v0.3.0`、`0.3.0`、`0.3`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
+正式 tag 会生成 `v0.4.0`、`0.4.0`、`0.4`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
 
 ```bash
 docker volume create meowmail-data
@@ -123,7 +123,7 @@ docker run --detach \
   --env MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME=admin \
   --env MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD='请换成足够长的随机密码' \
   --volume meowmail-data:/data \
-  ghcr.io/ca-x/meowmail:0.3.0
+  ghcr.io/ca-x/meowmail:0.4.0
 ```
 
 本地构建可把最后一个镜像名换成 `meowmail:local`：
@@ -155,10 +155,14 @@ docker build --tag meowmail:local .
 
 ## 邮件账户与代理
 
-界面提供 Gmail、Outlook 和自定义预设。请确认服务商已启用 IMAP/SMTP，并优先使用应用专用密码：
+界面提供 Gmail、Outlook、QQ 邮箱、163 网易、腾讯企业邮、阿里企业邮和自定义预设。请确认服务商已启用 IMAP/SMTP，并优先使用应用专用密码：
 
 - Gmail：IMAP `imap.gmail.com:993` TLS；SMTP `smtp.gmail.com:465` TLS 或 `587` STARTTLS
 - Outlook：IMAP `outlook.office365.com:993` TLS；SMTP `smtp.office365.com:587` STARTTLS
+- QQ 邮箱：IMAP `imap.qq.com:993` TLS；SMTP `smtp.qq.com:465` TLS（服务商也支持 `587`）
+- 163 网易：IMAP `imap.163.com:993` TLS；SMTP `smtp.163.com:465` TLS
+- 腾讯企业邮：IMAP `imap.exmail.qq.com:993` TLS；SMTP `smtp.exmail.qq.com:465` TLS
+- 阿里企业邮：IMAP `imap.qiye.aliyun.com:993` TLS；SMTP `smtp.qiye.aliyun.com:465` TLS
 - 自定义：只接受 TLS 或 STARTTLS，不会通过明文连接发送凭据
 
 每个账户可以选择：
@@ -329,7 +333,7 @@ cargo test --locked
 cargo build --release --locked
 ```
 
-推送 `v0.3.0` tag 后：
+推送 `v0.4.0` tag 后：
 
 - `.github/workflows/release.yml` 构建 Linux x86_64/aarch64、Windows x86_64、macOS x86_64/aarch64 压缩包，生成 `SHA256SUMS` 并发布 GitHub Release。
 - `.github/workflows/docker.yml` 构建 amd64/arm64 镜像，附带 provenance 与 SBOM，并同时发布到 `ghcr.io/ca-x/meowmail` 与 `czyt/meowmail`。
