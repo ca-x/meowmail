@@ -2,7 +2,7 @@
 
 妙邮（Meowmail）是一个自托管、多用户、多邮件账户的 Web 邮件客户端。后端使用 Rust、Axum、SeaORM 与 SQLite，前端使用 React 19 与 Vite。生产构建会把完整 Web 资源嵌入 Rust 可执行文件，运行时无需 Node.js 或独立静态文件服务器。
 
-`0.4.0` 使用 Astryx 重构完整前端，提供七套视觉主题，并升级邮件阅读、附件预览、设置中心与邮件账户配置体验；`0.3.0` 在多用户基础上加入了个人 MCP 接入。`0.1.x` 从未上线，因此仍不包含从旧单用户原型迁移的逻辑。
+`0.4.1` 修正内部弹窗未按 Astryx Layout 间距契约组合、导致关闭按钮越界的问题；`0.4.0` 使用 Astryx 重构完整前端，提供七套视觉主题，并升级邮件阅读、附件预览、设置中心与邮件账户配置体验。`0.1.x` 从未上线，因此仍不包含从旧单用户原型迁移的逻辑。
 
 ## 界面预览
 
@@ -107,11 +107,11 @@ OIDC 使用 Authorization Code、PKCE、state 与 nonce，并校验 ID Token 的
 正式版本同时发布 `linux/amd64` 与 `linux/arm64` 镜像：
 
 ```bash
-docker pull ghcr.io/ca-x/meowmail:0.4.0
-docker pull czyt/meowmail:0.4.0
+docker pull ghcr.io/ca-x/meowmail:0.4.1
+docker pull czyt/meowmail:0.4.1
 ```
 
-正式 tag 会生成 `v0.4.0`、`0.4.0`、`0.4`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
+正式 tag 会生成 `v0.4.1`、`0.4.1`、`0.4`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
 
 ```bash
 docker volume create meowmail-data
@@ -123,7 +123,7 @@ docker run --detach \
   --env MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME=admin \
   --env MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD='请换成足够长的随机密码' \
   --volume meowmail-data:/data \
-  ghcr.io/ca-x/meowmail:0.4.0
+  ghcr.io/ca-x/meowmail:0.4.1
 ```
 
 本地构建可把最后一个镜像名换成 `meowmail:local`：
@@ -333,7 +333,7 @@ cargo test --locked
 cargo build --release --locked
 ```
 
-推送 `v0.4.0` tag 后：
+推送 `v0.4.1` tag 后：
 
 - `.github/workflows/release.yml` 构建 Linux x86_64/aarch64、Windows x86_64、macOS x86_64/aarch64 压缩包，生成 `SHA256SUMS` 并发布 GitHub Release。
 - `.github/workflows/docker.yml` 构建 amd64/arm64 镜像，附带 provenance 与 SBOM，并同时发布到 `ghcr.io/ca-x/meowmail` 与 `czyt/meowmail`。

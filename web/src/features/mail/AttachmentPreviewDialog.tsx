@@ -76,7 +76,7 @@ export function AttachmentPreviewDialog({ isOpen = true, messageId, attachment, 
     >
       <Layout
         height="fill"
-        padding={0}
+        padding={4}
         header={
           <DialogHeader
             title={filename}

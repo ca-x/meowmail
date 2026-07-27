@@ -190,7 +190,7 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
           <Layout
             className="account-dialog-layout"
             height="fill"
-            padding={0}
+            padding={4}
             header={
               <DialogHeader
                 title={account ? t("editAccount") : t("addAccount")}

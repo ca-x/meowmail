@@ -110,7 +110,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
         <Layout
           className="compose-dialog-layout"
           height="fill"
-          padding={0}
+          padding={4}
           header={
             <DialogHeader
               title={t("compose")}

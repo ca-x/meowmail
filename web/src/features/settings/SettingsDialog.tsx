@@ -59,6 +59,7 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
       <Layout
         className="settings-dialog-layout"
         height="fill"
+        padding={4}
         header={
           <div className="settings-dialog-header">
             <DialogHeader
