@@ -5,7 +5,10 @@ import type {
   CleanupRuleInput,
   ImportReport,
   MailAccount,
+  MailPreferences,
   MailSettings,
+  McpSettings,
+  GeneratedMcpToken,
   MessageDetail,
   MessageSummary,
   MigrationArchive,
@@ -13,6 +16,8 @@ import type {
   MigrationSections,
   NotificationSettings,
   PublicUser,
+  Signature,
+  SignatureInput,
   SessionResponse,
 } from "./types"
 
@@ -102,6 +107,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  updateAccountIdentity: (id: string, input: { displayName: string; signatureId: string | null; isDefault: boolean }) =>
+    request<MailAccount>(`/api/v1/accounts/${id}/identity`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
   deleteAccount: (id: string) => request<void>(`/api/v1/accounts/${id}`, { method: "DELETE" }),
   testAccount: (input: AccountInput) =>
     request<{ imap: boolean; smtp: boolean }>("/api/v1/accounts/test", {
@@ -117,11 +127,15 @@ export const api = {
   messages: (params: URLSearchParams) =>
     request<MessageSummary[]>(`/api/v1/messages?${params.toString()}`),
   message: (id: string) => request<MessageDetail>(`/api/v1/messages/${id}`),
+  messageThread: (id: string) => request<MessageDetail[]>(`/api/v1/messages/${id}/thread`),
+  attachmentUrl: (messageId: string, attachmentId: string, download = false) =>
+    `/api/v1/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}${download ? "?download=true" : ""}`,
   updateMessage: (id: string, update: { isRead?: boolean; isStarred?: boolean }) =>
     request<MessageSummary>(`/api/v1/messages/${id}`, {
       method: "PATCH",
       body: JSON.stringify(update),
     }),
+  deleteMessage: (id: string) => request<void>(`/api/v1/messages/${id}`, { method: "DELETE" }),
   sendMessage: (input: {
     accountId: string
     to: string[]
@@ -148,6 +162,29 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(settings),
     }),
+  mailPreferences: () => request<MailPreferences>("/api/v1/preferences/mail"),
+  updateMailPreferences: (preferences: MailPreferences) =>
+    request<MailPreferences>("/api/v1/preferences/mail", {
+      method: "PUT",
+      body: JSON.stringify(preferences),
+    }),
+  signatures: () => request<Signature[]>("/api/v1/signatures"),
+  createSignature: (input: SignatureInput) =>
+    request<Signature>("/api/v1/signatures", { method: "POST", body: JSON.stringify(input) }),
+  updateSignature: (id: string, input: SignatureInput) =>
+    request<Signature>(`/api/v1/signatures/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteSignature: (id: string) => request<void>(`/api/v1/signatures/${id}`, { method: "DELETE" }),
+  mcpSettings: () => request<McpSettings>("/api/v1/mcp/settings"),
+  generateMcpToken: () => request<GeneratedMcpToken>("/api/v1/mcp/token", { method: "POST" }),
+  updateMcpSettings: (allowDelete: boolean) =>
+    request<McpSettings>("/api/v1/mcp/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ allowDelete }),
+    }),
+  revokeMcpToken: () => request<void>("/api/v1/mcp/token", { method: "DELETE" }),
   cleanupRules: () => request<CleanupRule[]>("/api/v1/cleanup/rules"),
   createCleanupRule: (input: CleanupRuleInput) =>
     request<CleanupRule>("/api/v1/cleanup/rules", {
@@ -161,6 +198,11 @@ export const api = {
     }),
   deleteCleanupRule: (id: string) =>
     request<void>(`/api/v1/cleanup/rules/${id}`, { method: "DELETE" }),
+  reorderCleanupRules: (ids: string[]) =>
+    request<CleanupRule[]>("/api/v1/cleanup/rules/reorder", {
+      method: "PUT",
+      body: JSON.stringify({ ids }),
+    }),
   exportConfiguration: (
     passphrase: string,
     scope: MigrationScope,

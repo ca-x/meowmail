@@ -6,6 +6,7 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub user_id: String,
     pub keep_local_after_server_delete: bool,
+    pub sync_fetch_limit: Option<i32>,
     pub updated_at: i64,
 }
 

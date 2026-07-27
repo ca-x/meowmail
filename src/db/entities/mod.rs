@@ -1,8 +1,12 @@
 pub mod cleanup_rule;
+pub mod email_draft;
 pub mod mail_account;
 pub mod mail_setting;
+pub mod mcp_token;
 pub mod message;
+pub mod message_attachment;
 pub mod notification_setting;
 pub mod preference;
+pub mod signature;
 pub mod user;
 pub mod user_identity;

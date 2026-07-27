@@ -126,11 +126,27 @@ pub struct MailAccount {
     pub imap: ServerConfig,
     pub smtp: ServerConfig,
     pub proxy: PublicProxyConfig,
+    pub signature_id: Option<Uuid>,
     pub is_default: bool,
     pub last_synced_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
     pub has_password: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountIdentityInput {
+    pub display_name: String,
+    pub signature_id: Option<Uuid>,
+    pub is_default: bool,
+}
+
+impl AccountIdentityInput {
+    pub fn normalize(&mut self) -> Result<(), AppError> {
+        self.display_name = clean_required(&self.display_name, "display name", 80)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -55,7 +55,9 @@ fn embedded(path: &str) -> Option<Response> {
     );
     let cache = match actual_path {
         "index.html" => "no-cache",
-        path if path.starts_with("assets/") => "public, max-age=31536000, immutable",
+        path if path.starts_with("assets/") || path.starts_with("file-viewer/") => {
+            "public, max-age=31536000, immutable"
+        }
         _ => "public, max-age=3600",
     };
     response

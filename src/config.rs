@@ -139,8 +139,12 @@ impl OidcConfig {
         .map(SecretString::from);
         let redirect = env_value("MEOWMAIL_OIDC_REDIRECT_URL")
             .or_else(|| {
-                env_value("LAZYCAT_PUBLIC_URL")
-                    .map(|base| format!("{}/api/v1/auth/oidc/callback", base.trim_end_matches('/')))
+                env_value("LAZYCAT_APP_DOMAIN").map(|domain| {
+                    format!(
+                        "https://{}/api/v1/auth/oidc/callback",
+                        domain.trim().trim_end_matches('/')
+                    )
+                })
             })
             .ok_or_else(|| anyhow::anyhow!("MEOWMAIL_OIDC_REDIRECT_URL is required"))?;
         let issuer = validate_http_url("MEOWMAIL_OIDC_ISSUER", issuer)?;

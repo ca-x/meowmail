@@ -24,7 +24,7 @@ test("submits a local username and password", async () => {
     authenticated: true,
     locked: false,
     csrfToken: "csrf-token",
-    version: "0.2.0",
+    version: "0.3.0",
     user: {
       id: "user-id",
       username: "admin",

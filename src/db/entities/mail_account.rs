@@ -21,6 +21,7 @@ pub struct Model {
     pub proxy_port: Option<i32>,
     pub proxy_username: Option<String>,
     pub proxy_password_cipher: Option<String>,
+    pub signature_id: Option<String>,
     pub is_default: bool,
     pub last_synced_at: Option<i64>,
     pub created_at: i64,

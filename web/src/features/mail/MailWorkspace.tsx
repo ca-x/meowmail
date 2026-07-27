@@ -5,8 +5,9 @@ import {
 } from "lucide-react"
 
 import { api } from "../../app/api"
+import { defaultMailPreferences } from "../../app/mailPreferences"
 import { readStoredValue, removeStoredValue, writeStoredValue } from "../../app/storage"
-import type { MailAccount, MessageDetail, MessageSummary, SessionResponse } from "../../app/types"
+import type { MailAccount, MailPreferences, MessageDetail, MessageSummary, SessionResponse } from "../../app/types"
 import { AccountDialog } from "../accounts/AccountDialog"
 import { SettingsDialog } from "../settings/SettingsDialog"
 import { useI18n } from "../../i18n/I18nProvider"
@@ -30,8 +31,10 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
   const [accounts, setAccounts] = useState<MailAccount[]>([])
   const [activeAccountId, setActiveAccountId] = useState<string | null>(() => readStoredValue("meowmail-account"))
   const [messages, setMessages] = useState<MessageSummary[]>([])
+  const [mailPreferences, setMailPreferences] = useState<MailPreferences>(defaultMailPreferences)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<MessageDetail | null>(null)
+  const [thread, setThread] = useState<MessageDetail[]>([])
   const [filter, setFilter] = useState<Filter>("inbox")
   const [search, setSearch] = useState("")
   const [query, setQuery] = useState("")
@@ -96,6 +99,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
   }, [activeAccountId, filter, query, selectedId, showToast])
 
   useEffect(() => { loadAccounts().catch(() => showToast("genericError")) }, [loadAccounts, showToast])
+  useEffect(() => { api.mailPreferences().then(setMailPreferences).catch(() => showToast("genericError")) }, [showToast])
   useEffect(() => { loadMessages() }, [loadMessages])
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 250)
@@ -148,12 +152,19 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
     setMobileView("detail")
     setDetailLoading(true)
     try {
-      const loaded = await api.message(message.id)
+      const loadedThread = mailPreferences.conversationMode
+        ? await api.messageThread(message.id)
+        : [await api.message(message.id)]
+      const loaded = loadedThread.find((item) => item.id === message.id)
+        || loadedThread[loadedThread.length - 1]
+      if (!loaded) throw new Error("message is missing")
+      setThread(loadedThread)
       setDetail(loaded)
       if (!loaded.isRead) {
         const updated = await api.updateMessage(loaded.id, { isRead: true })
         setMessages((items) => items.map((item) => item.id === updated.id ? updated : item))
         setDetail((value) => value ? { ...value, isRead: true } : value)
+        setThread((items) => items.map((item) => item.id === updated.id ? { ...item, isRead: true } : item))
       }
     } catch {
       showToast("genericError")
@@ -167,6 +178,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
     if (!updated) return showToast("genericError")
     setMessages((items) => items.map((item) => item.id === updated.id ? updated : item))
     setDetail((value) => value?.id === updated.id ? { ...value, isStarred: updated.isStarred } : value)
+    setThread((items) => items.map((item) => item.id === updated.id ? { ...item, isStarred: updated.isStarred } : item))
   }
 
   async function toggleDetailStar() {
@@ -178,6 +190,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
     const updated = await api.updateMessage(detail.id, { isRead: !detail.isRead }).catch(() => null)
     if (!updated) return showToast("genericError")
     setDetail({ ...detail, isRead: updated.isRead })
+    setThread((items) => items.map((item) => item.id === updated.id ? { ...item, isRead: updated.isRead } : item))
     setMessages((items) => items.map((item) => item.id === updated.id ? updated : item))
   }
 
@@ -207,6 +220,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
     setActiveAccountId(id)
     setSelectedId(null)
     setDetail(null)
+    setThread([])
     setMobileView("list")
     setSidebarOpen(false)
     if (id) writeStoredValue("meowmail-account", id)
@@ -231,9 +245,15 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
 
   function replyToMessage() {
     if (!detail) return
+    const originalSender = detail.senderName ? `${detail.senderName} <${detail.senderEmail}>` : detail.senderEmail
+    const quoted = detail.bodyText.split("\n").map((line) => `> ${line}`).join("\n")
     setComposeDraft({
-      to: detail.senderEmail,
-      subject: prefixedSubject("Re:", detail.subject),
+      accountId: detail.accountId,
+      to: detail.replyToEmail || detail.senderEmail,
+      subject: prefixedSubject(mailPreferences.subjectPrefixLanguage === "chinese" ? "回复：" : "Re:", detail.subject),
+      body: mailPreferences.attachOriginalOnReply
+        ? `\n\n${t("replyOriginalHeader", { sender: originalSender })}\n${quoted}`
+        : "",
     })
   }
 
@@ -242,9 +262,32 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
     const originalSubject = detail.subject || t("noSubject")
     const originalSender = detail.senderName ? `${detail.senderName} <${detail.senderEmail}>` : detail.senderEmail
     setComposeDraft({
-      subject: prefixedSubject("Fwd:", detail.subject),
+      accountId: detail.accountId,
+      subject: prefixedSubject(mailPreferences.subjectPrefixLanguage === "chinese" ? "转发：" : "Fwd:", detail.subject),
       body: `\n\n---------- ${t("forwardedMessage")} ----------\n${t("sender")}: ${originalSender}\n${t("subject")}: ${originalSubject}\n\n${detail.bodyText || detail.preview}`,
     })
+  }
+
+  async function deleteMessage() {
+    if (!detail) return
+    const currentIndex = messages.findIndex((message) => message.id === detail.id)
+    try {
+      await api.deleteMessage(detail.id)
+      const nextMessages = messages.filter((message) => message.id !== detail.id)
+      setMessages(nextMessages)
+      showToast("messageDeletedSuccess")
+      if (mailPreferences.afterAction === "nextMessage" && nextMessages.length) {
+        const next = nextMessages[Math.min(currentIndex, nextMessages.length - 1)]
+        if (next) await selectMessage(next)
+      } else {
+        setSelectedId(null)
+        setDetail(null)
+        setThread([])
+        setMobileView("list")
+      }
+    } catch {
+      showToast("genericError")
+    }
   }
 
   return (
@@ -272,7 +315,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
         </div>
       </header>
 
-      <div className={`workspace ${sidebarOpen ? "sidebar-open" : ""}`} data-view={mobileView}>
+      <div className={`workspace ${sidebarOpen ? "sidebar-open" : ""}`} data-view={mobileView} data-reading-mode={mailPreferences.readingMode} data-list-density={mailPreferences.listDensity}>
         <aside className="mail-sidebar" id="mail-sidebar">
           <div className="account-switcher">
             <button className="current-account" type="button" onClick={() => openAccountDialog(activeAccount)} aria-label={activeAccount ? t("editAccount") : t("addAccount")}>
@@ -330,29 +373,35 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
               <button className="primary-button" type="button" onClick={() => openAccountDialog(null)}><Plus size={16} />{t("addFirstAccount")}</button>
             </div>
           ) : (
-            <MessageList messages={messages} selectedId={selectedId} loading={loading} onSelect={selectMessage} onToggleStar={toggleStar} />
+            <MessageList messages={messages} selectedId={selectedId} loading={loading} preferences={mailPreferences} onSelect={selectMessage} onToggleStar={toggleStar} />
           )}
         </section>
 
         <section className="detail-column">
           <DetailPane
             message={detail}
+            thread={thread}
             loading={detailLoading}
+            preferences={mailPreferences}
             onBack={() => setMobileView("list")}
             onToggleStar={toggleDetailStar}
             onToggleRead={toggleRead}
             onReply={replyToMessage}
             onForward={forwardMessage}
+            onDelete={() => void deleteMessage()}
           />
         </section>
       </div>
 
-      {composeDraft !== undefined && <ComposeDialog accounts={accounts} activeAccountId={activeAccountId} draft={composeDraft} onClose={() => setComposeDraft(undefined)} onSent={() => { setComposeDraft(undefined); showToast("sentSuccess") }} />}
+      {composeDraft !== undefined && <ComposeDialog accounts={accounts} activeAccountId={activeAccountId} preferences={mailPreferences} draft={composeDraft} onClose={() => setComposeDraft(undefined)} onSent={() => { setComposeDraft(undefined); showToast("sentSuccess") }} />}
       {settingsOpen && (
         <SettingsDialog
           session={session}
           accounts={accounts}
+          mailPreferences={mailPreferences}
           onSessionChanged={onSessionChanged}
+          onMailPreferencesChanged={setMailPreferences}
+          onAccountsChanged={setAccounts}
           onLocked={onLocked}
           onClose={() => setSettingsOpen(false)}
           onOpenAccounts={() => { setSettingsOpen(false); setAccountDialog(activeAccount || null) }}
@@ -372,11 +421,11 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
   )
 }
 
-function prefixedSubject(prefix: "Re:" | "Fwd:", subject: string) {
+function prefixedSubject(prefix: "Re:" | "Fwd:" | "回复：" | "转发：", subject: string) {
   const normalized = subject.trim()
   if (!normalized) return prefix
-  const alreadyPrefixed = prefix === "Re:" ? /^re\s*:/i.test(normalized) : /^(fwd?|fw)\s*:/i.test(normalized)
-  return alreadyPrefixed ? normalized : `${prefix} ${normalized}`
+  const alreadyPrefixed = /^(re|fwd?|fw)\s*:/i.test(normalized) || /^(回复|转发)：/.test(normalized)
+  return alreadyPrefixed ? normalized : prefix.endsWith("：") ? `${prefix}${normalized}` : `${prefix} ${normalized}`
 }
 
 function FolderButton({ icon, label, active = false, count, onClick, disabled = false }: {

@@ -1,56 +1,46 @@
-# Meowmail 0.2.0 Tasks
+# Meowmail 0.3.0 MCP Tasks
 
-- [ ] Add users, identities, ownership, profile/avatar, and per-user settings schema.
-  - Acceptance: a fresh 0.2.0 database initializes with all user-owned tables and constraints.
-  - Verify: migration and repository tests.
-  - Files: `src/db/migration.rs`, `src/db/entities/*`, `src/db.rs`.
+- [x] Add MCP token and outgoing draft schema/entities.
+  - Acceptance: existing 0.2.0 SQLite databases migrate additively; ownership cascades on user/account deletion.
+  - Verify: migration/repository tests and `cargo test --locked`.
+  - Files: `src/db/migration.rs`, `src/db/entities/*`.
 
-- [ ] Implement local users, bootstrap administrator, roles, and user-aware sessions.
-  - Acceptance: passwords are Argon2id hashed; cookies/CSRF remain protected; existing passwords are not reset.
-  - Verify: `tests/auth_api.rs`.
-  - Files: `src/auth.rs`, `src/users/*`, `src/config.rs`, `src/lib.rs`.
+- [x] Add personal token lifecycle API.
+  - Acceptance: status, generate/rotate, permission update and revoke are session+CSRF protected; plaintext is returned once; DB stores only digest.
+  - Verify: token rotation, revocation and two-user isolation tests.
+  - Files: `src/mcp/api.rs`, `src/mcp/repository.rs`, `src/mcp/model.rs`.
 
-- [ ] Implement OIDC discovery and Authorization Code + PKCE login.
-  - Acceptance: issuer/state/nonce/signature/audience/expiry are verified and identity uses issuer+subject.
-  - Verify: config/state/provisioning tests plus local provider smoke where available.
-  - Files: `src/auth.rs`, `src/config.rs`, `Cargo.toml`, `Cargo.lock`.
+- [x] Add MCP Streamable HTTP/JSON-RPC endpoint.
+  - Acceptance: bearer auth and same-origin checks precede body parsing; initialize, ping, response-free notifications, tools/list and tools/call follow the documented contract.
+  - Verify: router integration tests at `POST /mcp`.
+  - Files: `src/mcp/protocol.rs`, `src/mcp/mod.rs`, `src/lib.rs`.
 
-- [ ] Add personal PIN lock/unlock.
-  - Acceptance: PIN is optional, per-user Argon2id hash, and never accepted as primary login.
-  - Verify: lock/unlock integration tests.
-  - Files: `src/auth.rs`, `src/users/*`, `tests/auth_api.rs`.
+- [x] Implement bounded mail tools and drafts.
+  - Acceptance: owned accounts/messages can be listed/read with hard result limits; replies honor Reply-To/References; atomically claimed drafts send via existing SMTP/proxy settings and uncertain delivery cannot be blindly retried.
+  - Verify: repository/tool unit tests plus existing mail validation tests.
+  - Files: `src/mcp/tools.rs`, `src/messages/repository.rs`, `src/accounts/repository.rs`.
 
-- [ ] Scope mail accounts/messages/notifications by user.
-  - Acceptance: two users cannot access each other's resources; notification hooks use the account owner settings.
-  - Verify: two-user integration tests.
-  - Files: `src/accounts/*`, `src/messages/*`, `src/notifications/*`.
+- [x] Implement opt-in MCP deletion.
+  - Acceptance: default denial; opt-in checked per call; server IMAP deletion succeeds before local cache deletion.
+  - Verify: permission denial and owned-message deletion tests.
+  - Files: `src/mcp/tools.rs`, `src/messages/repository.rs`.
 
-- [ ] Add per-user mail retention and automatic cleanup rules.
-  - Acceptance: server-deleted mail can remain locally; rules match optional account/sender/age/subject/body criteria; server deletion is explicit.
-  - Verify: rule matching, local reconciliation, and owned-account enforcement tests.
-  - Files: `src/cleanup/*`, `src/messages/*`, `src/db/*`, `tests/*`.
+- [x] Add concise bilingual Settings controls.
+  - Acceptance: users can generate/copy/revoke token and toggle deletion; token is shown only for the generation response; Chinese and English text are complete.
+  - Verify: `npm --prefix web run typecheck` and component tests.
+  - Files: `web/src/features/settings/SettingsDialog.tsx`, `web/src/app/*`, `web/src/i18n/messages.ts`, CSS.
 
-- [ ] Add nickname/avatar and encrypted export/import migration.
-  - Acceptance: profile edits persist; avatar type/size is validated; selectable personal sections round trip; administrators can choose all users or only their own configuration; all-user conflicts are reported safely.
-  - Verify: profile/archive tests.
-  - Files: `src/users/*`, `src/security.rs`, `tests/*`.
+- [x] Update docs and version metadata.
+  - Acceptance: Cargo/Web versions are 0.3.0; README explains MCP endpoint, bearer setup, tools and security behavior.
+  - Verify: version searches and release workflow tag check.
+  - Files: `Cargo.toml`, `Cargo.lock`, `web/package*.json`, `README.md`.
 
-- [ ] Update React authentication and settings UX in Chinese and English.
-  - Acceptance: local/OIDC/hybrid login, locked screen, profile, PIN, avatar, export/import, retention, and cleanup-rule controls are usable and localized.
-  - Verify: typecheck and component tests.
-  - Files: `web/src/app/*`, `web/src/features/auth/*`, `web/src/features/settings/*`, `web/src/i18n/messages.ts`, CSS.
+- [x] Add per-user sync fetch scope.
+  - Acceptance: users can fetch all INBOX mail or the most recent 1–10000 messages; default and legacy value is 50; export/import includes the choice.
+  - Verify: additive migration, sequence unit tests, repository validation, archive assertion, and bilingual component test.
+  - Files: `src/db/migration.rs`, `src/cleanup/*`, `src/messages/api.rs`, `web/src/features/settings/SettingsDialog.tsx`.
 
-- [ ] Update version, docs, Docker, and CI smoke tests.
-  - Acceptance: all displayed/package versions are 0.2.0 and docs describe new environment variables and migration behavior.
-  - Verify: release build and container smoke test.
-  - Files: `Cargo.toml`, `web/package.json`, `.env.example`, `README.md`, workflows.
-
-- [ ] Update and verify the LazyCat package.
-  - Acceptance: single instance, OIDC-only, no PIN injection, file chooser interception, 0.2.0 package, dual-store workflow valid.
-  - Verify: `actionlint`, `lzc-cli project release`, `lzc-cli lpk info`.
-  - Files: `/home/czyt/code/rust/meowmail-lazycat/*`.
-
-- [ ] Commit, push, tag, and publish 0.2.0.
-  - Acceptance: both repositories pushed; GitHub Release, GHCR, Docker Hub, binary assets, LPK asset, and enabled stores report the expected version or an explicit external failure.
-  - Verify: GitHub workflow/release/store status and asset SHA256.
-  - Files: Git history and release metadata.
+- [ ] Verify and publish `v0.3.0`.
+  - Acceptance: all release gates pass; main is pushed; GitHub Release, GHCR and Docker Hub publish successfully. LazyCat repository remains untouched.
+  - Verify: local commands plus GitHub Actions/release/manifests.
+  - Files: repository history and release metadata.

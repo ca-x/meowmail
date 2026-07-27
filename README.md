@@ -2,7 +2,7 @@
 
 妙邮（Meowmail）是一个自托管、多用户、多邮件账户的 Web 邮件客户端。后端使用 Rust、Axum、SeaORM 与 SQLite，前端使用 React 19 与 Vite。生产构建会把完整 Web 资源嵌入 Rust 可执行文件，运行时无需 Node.js 或独立静态文件服务器。
 
-`0.2.0` 是首个正式版本，不包含 `0.1.x` 数据库迁移逻辑。
+`0.3.0` 在首个正式版本 `0.2.0` 的多用户基础上新增个人 MCP 接入；`0.1.x` 从未上线，因此仍不包含从旧单用户原型迁移的逻辑。
 
 ## 界面预览
 
@@ -16,7 +16,7 @@
 
 ![妙邮 PC 三栏工作区](docs/assets/screenshots/workspace.png)
 
-个人资料、主题与安全设置：
+发信偏好、账户昵称与邮件签名：
 
 ![妙邮 PC 设置界面](docs/assets/screenshots/settings.png)
 
@@ -26,7 +26,7 @@
   <tr>
     <th>登录</th>
     <th>收件箱</th>
-    <th>个人设置</th>
+    <th>邮件签名</th>
   </tr>
   <tr>
     <td><img src="docs/assets/screenshots/mobile-login.png" width="240" alt="妙邮移动端登录界面"></td>
@@ -42,16 +42,21 @@
 - 每个邮件账户可独立使用直连、HTTP CONNECT 或 SOCKS5 代理，并支持代理认证
 - 本地账号、OIDC 或混合登录；无管理员时可让首位 OIDC 用户自动成为管理员
 - 可选个人 PIN 应用锁；PIN 只用于登录后的锁定/解锁，不是主登录凭据
-- 用户头像、昵称及个人设置
-- 加密配置导入/导出，可选择资料、邮件账户、通知、邮件保留与清理规则
+- 用户头像、昵称及个人设置；每个邮件账户可绑定独立的发件昵称与邮件签名
+- 阅读、发信和回复偏好，包括预览/列表模式、列表密度、会话模式、纯文本阅读、默认写信字体及主题前缀语言
+- 推广邮件可依据标准群发邮件头聚合显示，不使用宽泛关键词隐藏邮件
+- 邮件详情展示附件名称、类型与大小，并使用 `@file-viewer/web-full` 在桌面端和移动端预览常见文件
+- 每位用户可生成独立 MCP token，让 AI 在用户隔离范围内阅读邮件、创建/发送新邮件与回复；MCP 删除权限默认关闭
+- 加密配置导入/导出，可选择资料、邮件账户、通知、邮件保留与清理规则、邮件偏好及邮件签名
 - 管理员可选择“仅我的配置”或“所有用户”；普通用户只能操作自己的配置
 - 服务器删除邮件后可保留本地副本；支持按账户、发件人、主题、正文与邮件年龄自动清理
+- 每位用户可选择同步收取整个 INBOX，或仅收取最近 1–10000 封邮件；默认最近 50 封
 - 新邮件自定义命令通知和 HTTP POST Webhook，支持 `{account}`、`{sender}`、`{subject}` 等模板
 - 中文 / English，以及跟随系统、浅色、深色主题
 - 桌面三栏、平板双栏和移动端列表/详情布局
 - 单文件二进制、Docker amd64/arm64 镜像与自动化发布
 
-当前邮件服务器认证使用邮箱密码或服务商提供的应用专用密码，尚未实现邮件服务商 OAuth2。同步范围目前是每个账户 INBOX 中最近 50 封邮件。
+当前邮件服务器认证使用邮箱密码或服务商提供的应用专用密码，尚未实现邮件服务商 OAuth2。同步收取范围可在个人“邮件保留与清理”设置中选择全部邮件或最近指定数量，默认最近 50 封。
 
 ## 快速启动
 
@@ -102,11 +107,11 @@ OIDC 使用 Authorization Code、PKCE、state 与 nonce，并校验 ID Token 的
 正式版本同时发布 `linux/amd64` 与 `linux/arm64` 镜像：
 
 ```bash
-docker pull ghcr.io/ca-x/meowmail:0.2.0
-docker pull czyt/meowmail:0.2.0
+docker pull ghcr.io/ca-x/meowmail:0.3.0
+docker pull czyt/meowmail:0.3.0
 ```
 
-正式 tag 会生成 `v0.2.0`、`0.2.0`、`0.2`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
+正式 tag 会生成 `v0.3.0`、`0.3.0`、`0.3`、`latest` 和 `sha-<commit>` 标签。下面以 GHCR 为例：
 
 ```bash
 docker volume create meowmail-data
@@ -118,7 +123,7 @@ docker run --detach \
   --env MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME=admin \
   --env MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD='请换成足够长的随机密码' \
   --volume meowmail-data:/data \
-  ghcr.io/ca-x/meowmail:0.2.0
+  ghcr.io/ca-x/meowmail:0.3.0
 ```
 
 本地构建可把最后一个镜像名换成 `meowmail:local`：
@@ -146,7 +151,7 @@ docker build --tag meowmail:local .
 | `MEOWMAIL_OIDC_SCOPES` | `openid profile email` | 空格分隔的 scopes，必须包含 `openid` |
 | `MEOWMAIL_OIDC_FIRST_USER_ADMIN` | `true` | 无管理员时是否把首位 OIDC 用户设为管理员 |
 
-懒猫微服版本会自动使用 `LAZYCAT_AUTH_OIDC_ISSUER_URI`、`LAZYCAT_AUTH_OIDC_CLIENT_ID`、`LAZYCAT_AUTH_OIDC_CLIENT_SECRET` 与 `LAZYCAT_PUBLIC_URL` 作为回退配置，并仅启用 OIDC 登录。
+懒猫微服版本会自动使用 `LAZYCAT_AUTH_OIDC_ISSUER_URI`、`LAZYCAT_AUTH_OIDC_CLIENT_ID`、`LAZYCAT_AUTH_OIDC_CLIENT_SECRET` 与 `LAZYCAT_APP_DOMAIN` 作为回退配置，并仅启用 OIDC 登录。
 
 ## 邮件账户与代理
 
@@ -166,15 +171,15 @@ docker build --tag meowmail:local .
 
 ## 邮件保留与自动清理
 
-个人设置中可以选择：服务器上不存在的邮件是否继续保留本地副本。自动清理规则可组合以下条件：
+个人设置中可以选择：服务器上不存在的邮件是否继续保留本地副本。自动收信规则支持“满足全部条件”或“满足任一条件”，可组合以下条件：
 
 - 指定邮件账户
-- 发件人包含文本
-- 主题包含文本
-- 正文包含文本
-- 邮件早于指定天数
+- 发件人、发件域、收件人、抄送人或收件人/抄送人
+- 主题、正文或附件名
+- 邮件大小、收信时间或邮件天数
+- 是否包含附件
 
-规则默认只清理本地数据。只有显式启用“同时从服务器删除”时，Meowmail 才会使用邮件 UID 删除服务器副本。
+每条规则可以执行删除本地副本、从服务器删除、标记已读/未读、添加/取消星标、转发或自动回复，并可选择匹配后停止执行后续规则。只有明确选择“从服务器删除”时，Meowmail 才会使用邮件 UID 删除服务器副本。
 
 ## 新邮件通知
 
@@ -218,6 +223,53 @@ Webhook 使用 `POST` JSON：
 }
 ```
 
+## MCP：让 AI 安全接入邮件
+
+每位用户可以在“设置 → AI 与 MCP”生成自己的 bearer token。MCP 地址固定为当前实例的 `/mcp`，例如：
+
+```text
+https://mail.example.com/mcp
+```
+
+支持 MCP Streamable HTTP / JSON-RPC，协议版本为 `2025-03-26`。AI 客户端需要把 token 放在请求头中：
+
+```http
+Authorization: Bearer mmcp_...
+```
+
+通用远程 MCP 配置示例（不同客户端的字段名可能略有差异）：
+
+```json
+{
+  "mcpServers": {
+    "meowmail": {
+      "type": "http",
+      "url": "https://mail.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer mmcp_..."
+      }
+    }
+  }
+}
+```
+
+可用工具：
+
+- `list_mail_accounts`：列出当前用户的邮件账户，最多返回 100 个
+- `search_emails`：按账户、文件夹、关键词、未读、星标和附件状态检索本地缓存，最多返回 50 封
+- `read_email`：读取一封邮件的纯文本正文
+- `create_email_draft`：创建新邮件草稿，不会立即发送
+- `create_reply_draft`：优先使用 `Reply-To`，并保留 `In-Reply-To` / `References` 线程头，不会立即发送
+- `list_email_drafts`：列出最多 20 个 MCP 草稿及其发送状态
+- `send_email_draft`：原子占用草稿后，通过所属账户的 SMTP 与代理配置发送；成功后移除草稿
+- `delete_email`：从 IMAP 服务器和本地缓存永久删除邮件；仅在用户显式开启 MCP 删除权限后提供
+
+安全边界：token 只在生成响应中显示一次，响应带 `Cache-Control: no-store`，SQLite 仅保存随机密钥的 SHA-256 摘要；重新生成会立即废止旧 token；token 不会进入配置导入/导出；所有查询和操作都使用 token 对应的用户 ID 强制隔离；邮件正文会标记为不可信数据并限制返回大小；每个 token 每分钟最多请求 120 次。认证与同源检查会在解析 JSON-RPC 请求体之前完成，并在请求体读取完成后再次校验 token；请求体读取有大小和时间限制。普通 MCP 客户端可以不发送 `Origin`，浏览器请求的 HTTP(S) `Origin` 必须与 `Host` 完全同源。客户端若发送 `MCP-Protocol-Version`，当前只接受 `2025-03-26`。不要通过 URL 查询参数传递 token。
+
+为避免重复发送，草稿只允许从 `draft` 状态原子切换到 `sending` 一次。SMTP 结果不确定时会保留为 `ambiguous`，AI 再次调用发送会被拒绝，需要用户检查实际投递情况；服务在发送期间异常退出时，重启后也会把遗留的 `sending` 草稿保守地标记为 `ambiguous`。成功投递但草稿清理失败时会返回 `sent: true` 与 `draftRemoved: false`，同样不会建议重试发送。
+
+永久删除前会重新确认 token 的当前删除权限，检查缓存邮件的 IMAP `UIDVALIDITY` 与服务器当前邮箱一致，并确认目标 UID 仍存在；任一条件不满足都会拒绝删除并保留本地副本。升级前缓存的邮件需要重新同步以记录 `UIDVALIDITY`，必要时可暂时选择“全部收取”完成完整回填。
+
 ## 配置导入与导出
 
 归档使用用户提供的口令，经 Argon2id 派生密钥后用 XChaCha20-Poly1305 加密。导出时可以独立选择：
@@ -226,17 +278,21 @@ Webhook 使用 `POST` JSON：
 - 邮件账户、代理与邮件凭据
 - 推送设置
 - 邮件保留选项与自动清理规则
+- 阅读、发信和回复偏好、邮件签名及邮件账户身份
 
 管理员默认导出“仅我的配置”，也可以明确选择“所有用户”。全用户归档包含恢复账号所需的角色、密码/PIN 哈希及 OIDC issuer/subject，但不包含明文登录密码、OIDC Token、Client Secret 或会话。普通用户无法创建或导入全用户归档。
 
 ## 安全与备份
 
 - 用户密码和 PIN 使用 Argon2id 哈希；邮箱与代理密码使用 XChaCha20-Poly1305 加密
+- MCP token 使用 256 位随机密钥，只保存摘要；删除邮件权限默认关闭并在每次调用时由服务端校验，永久删除还要求 IMAP UIDVALIDITY 匹配
 - 会话保存在服务端内存，Cookie 为 HttpOnly、SameSite=Lax；服务重启后需要重新登录
 - 所有写 API 使用 CSRF token，登录失败有节流限制
 - HTML 邮件在后端清洗后放入 sandboxed iframe，默认阻止远程图片
 - API 有请求体大小限制、安全响应头与泛化的外部服务错误
 - SQLite 使用 WAL、外键和 busy timeout
+
+0.3.0 的依赖审计与已知不可达 advisory 说明见 [docs/security-audit-0.3.0.md](docs/security-audit-0.3.0.md)。
 
 停止容器或进程后备份完整数据目录：
 
@@ -273,7 +329,7 @@ cargo test --locked
 cargo build --release --locked
 ```
 
-推送 `v0.2.0` tag 后：
+推送 `v0.3.0` tag 后：
 
 - `.github/workflows/release.yml` 构建 Linux x86_64/aarch64、Windows x86_64、macOS x86_64/aarch64 压缩包，生成 `SHA256SUMS` 并发布 GitHub Release。
 - `.github/workflows/docker.yml` 构建 amd64/arm64 镜像，附带 provenance 与 SBOM，并同时发布到 `ghcr.io/ca-x/meowmail` 与 `czyt/meowmail`。

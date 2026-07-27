@@ -1,20 +1,23 @@
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, Set, TransactionTrait,
+    QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use secrecy::SecretString;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    db::{Database, entities::mail_account},
+    db::{
+        Database,
+        entities::{mail_account, signature},
+    },
     error::AppError,
     security::CredentialVault,
 };
 
 use super::{
-    AccountInput, AccountSecrets, ConnectionSecurity, MailAccount, ProxyConfig, ProxyKind,
-    PublicProxyConfig, ServerConfig,
+    AccountIdentityInput, AccountInput, AccountSecrets, ConnectionSecurity, MailAccount,
+    ProxyConfig, ProxyKind, PublicProxyConfig, ServerConfig,
 };
 
 #[derive(Clone)]
@@ -33,6 +36,23 @@ impl AccountRepository {
             .filter(mail_account::Column::UserId.eq(user_id.to_string()))
             .order_by_desc(mail_account::Column::IsDefault)
             .order_by_asc(mail_account::Column::CreatedAt)
+            .all(self.db.connection())
+            .await?
+            .into_iter()
+            .map(MailAccount::try_from)
+            .collect()
+    }
+
+    pub async fn list_limited(
+        &self,
+        user_id: Uuid,
+        limit: u64,
+    ) -> Result<Vec<MailAccount>, AppError> {
+        mail_account::Entity::find()
+            .filter(mail_account::Column::UserId.eq(user_id.to_string()))
+            .order_by_desc(mail_account::Column::IsDefault)
+            .order_by_asc(mail_account::Column::CreatedAt)
+            .limit(limit.clamp(1, 200))
             .all(self.db.connection())
             .await?
             .into_iter()
@@ -112,6 +132,7 @@ impl AccountRepository {
             proxy_port: Set(input.proxy.port.map(i32::from)),
             proxy_username: Set(input.proxy.username),
             proxy_password_cipher: Set(proxy_password_cipher),
+            signature_id: Set(None),
             is_default: Set(is_default),
             last_synced_at: Set(None),
             created_at: Set(now),
@@ -190,6 +211,42 @@ impl AccountRepository {
         Ok(())
     }
 
+    pub async fn update_identity(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+        mut input: AccountIdentityInput,
+    ) -> Result<MailAccount, AppError> {
+        input.normalize()?;
+        if let Some(signature_id) = input.signature_id
+            && signature::Entity::find()
+                .filter(signature::Column::Id.eq(signature_id.to_string()))
+                .filter(signature::Column::UserId.eq(user_id.to_string()))
+                .one(self.db.connection())
+                .await?
+                .is_none()
+        {
+            return Err(AppError::Validation("signature is invalid".into()));
+        }
+        let existing = self.get_model(user_id, id).await?;
+        let transaction = self.db.connection().begin().await?;
+        if input.is_default {
+            clear_default(&transaction, user_id).await?;
+        }
+        let was_default = existing.is_default;
+        let mut active = existing.into_active_model();
+        active.display_name = Set(input.display_name);
+        active.signature_id = Set(input.signature_id.map(|value| value.to_string()));
+        active.is_default = Set(input.is_default);
+        active.updated_at = Set(OffsetDateTime::now_utc().unix_timestamp());
+        active.update(&transaction).await?;
+        if was_default && !input.is_default {
+            ensure_default(&transaction, user_id).await?;
+        }
+        transaction.commit().await?;
+        self.get(user_id, id).await
+    }
+
     pub async fn mark_synced(
         &self,
         user_id: Uuid,
@@ -258,6 +315,10 @@ impl TryFrom<mail_account::Model> for MailAccount {
                 username: model.proxy_username,
                 has_password: model.proxy_password_cipher.is_some(),
             },
+            signature_id: model
+                .signature_id
+                .map(|value| Uuid::parse_str(&value).map_err(AppError::internal))
+                .transpose()?,
             is_default: model.is_default,
             last_synced_at: model.last_synced_at,
             created_at: model.created_at,

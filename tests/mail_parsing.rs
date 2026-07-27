@@ -12,3 +12,36 @@ fn parses_multipart_mail_and_sanitizes_html() {
     assert!(html.contains("<strong>Meowmail</strong>"));
     assert!(!html.contains("<script"));
 }
+
+#[test]
+fn parses_attachment_metadata_and_decoded_content() {
+    let raw = b"From: Alice <alice@example.com>\r\n\
+To: me@example.net\r\n\
+Subject: Report\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=meow\r\n\
+\r\n\
+--meow\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\
+\r\n\
+See attachment.\r\n\
+--meow\r\n\
+Content-Type: application/pdf; name=\"handbook.pdf\"\r\n\
+Content-Disposition: attachment; filename=\"handbook.pdf\"\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+JVBERi0xLjQK\r\n\
+--meow--\r\n";
+
+    let parsed = parse_message(raw, 0).unwrap();
+
+    assert_eq!(parsed.attachment_count, 1);
+    assert_eq!(parsed.attachments.len(), 1);
+    assert_eq!(parsed.attachments[0].filename, "handbook.pdf");
+    assert_eq!(parsed.attachments[0].content_type, "application/pdf");
+    assert_eq!(parsed.attachments[0].size, 9);
+    assert_eq!(
+        parsed.attachments[0].content.as_deref(),
+        Some(b"%PDF-1.4\n".as_slice())
+    );
+}

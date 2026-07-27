@@ -15,14 +15,30 @@ use crate::{
     mail,
 };
 
-use super::{AccountInput, AccountRepository, AccountSecrets, MailAccount, ProxyConfig};
+use super::{
+    AccountIdentityInput, AccountInput, AccountRepository, AccountSecrets, MailAccount, ProxyConfig,
+};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/accounts", get(list).post(create))
         .route("/accounts/test", post(test_draft))
         .route("/accounts/{id}", patch(update).delete(remove))
+        .route("/accounts/{id}/identity", patch(update_identity))
         .route("/accounts/{id}/test", post(test_saved))
+}
+
+async fn update_identity(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    mutation: MutationSession,
+    Json(input): Json<AccountIdentityInput>,
+) -> Result<Json<MailAccount>, AppError> {
+    Ok(Json(
+        repository(&state)
+            .update_identity(mutation.0.user_id, id, input)
+            .await?,
+    ))
 }
 
 async fn list(
@@ -109,6 +125,7 @@ async fn test_draft(
             username: input.proxy.username,
             has_password: proxy_password.is_some(),
         },
+        signature_id: None,
         is_default: false,
         last_synced_at: None,
         created_at: 0,

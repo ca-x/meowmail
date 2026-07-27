@@ -3,10 +3,11 @@ import { AtSign, ChevronDown, Paperclip, Send, X } from "lucide-react"
 
 import { api } from "../../app/api"
 import { useDialogBehavior } from "../../app/useDialogBehavior"
-import type { MailAccount } from "../../app/types"
+import type { MailAccount, MailPreferences } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 
 export interface ComposeDraft {
+  accountId?: string
   to?: string
   cc?: string
   bcc?: string
@@ -14,17 +15,21 @@ export interface ComposeDraft {
   body?: string
 }
 
-export function ComposeDialog({ accounts, activeAccountId, draft, onClose, onSent }: {
+export function ComposeDialog({ accounts, activeAccountId, preferences, draft, onClose, onSent }: {
   accounts: MailAccount[]
   activeAccountId: string | null
+  preferences: MailPreferences
   draft?: ComposeDraft | null
   onClose: () => void
   onSent: () => void
 }) {
   const { t } = useI18n()
   const defaultAccount = useMemo(
-    () => accounts.find((account) => account.id === activeAccountId) || accounts.find((account) => account.isDefault) || accounts[0],
-    [accounts, activeAccountId],
+    () => accounts.find((account) => account.id === draft?.accountId)
+      || accounts.find((account) => account.id === activeAccountId)
+      || accounts.find((account) => account.isDefault)
+      || accounts[0],
+    [accounts, activeAccountId, draft?.accountId],
   )
   const [accountId, setAccountId] = useState(defaultAccount?.id || "")
   const [to, setTo] = useState(draft?.to || "")
@@ -106,6 +111,8 @@ export function ComposeDialog({ accounts, activeAccountId, draft, onClose, onSen
           </div>
           <textarea
             className="compose-body"
+            data-font-family={preferences.composeFontFamily}
+            style={{ fontSize: preferences.composeFontSize, color: preferences.composeFontColor }}
             value={body}
             onChange={(event) => setBody(event.target.value)}
             placeholder={t("messagePlaceholder")}

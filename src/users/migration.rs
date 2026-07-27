@@ -11,8 +11,10 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    accounts::{AccountInput, AccountRepository, ProxyInput},
-    cleanup::{CleanupRepository, CleanupRuleInput, MailSettings},
+    accounts::{AccountIdentityInput, AccountInput, AccountRepository, ProxyInput},
+    cleanup::{
+        CleanupRepository, CleanupRuleInput, MailSettings, RuleAction, RuleCondition, RuleMatchMode,
+    },
     db::{
         Database,
         entities::{
@@ -21,6 +23,7 @@ use crate::{
     },
     error::AppError,
     notifications::NotificationSettings,
+    preferences::{MailPreferences, PreferencesRepository, SignatureInput},
     security::{CredentialVault, decrypt_archive, encrypt_archive},
 };
 
@@ -33,6 +36,7 @@ const MAX_ARCHIVE_PLAINTEXT_SIZE: usize = 10 * 1024 * 1024;
 const MAX_ARCHIVE_USERS: usize = 500;
 const MAX_ACCOUNTS_PER_USER: usize = 200;
 const MAX_RULES_PER_USER: usize = 2_000;
+const MAX_SIGNATURES_PER_USER: usize = 200;
 const MAX_IDENTITIES_PER_USER: usize = 32;
 const MAX_AVATAR_SIZE: usize = 512 * 1024;
 
@@ -50,11 +54,13 @@ pub struct MigrationSections {
     pub mail_accounts: bool,
     pub notifications: bool,
     pub cleanup: bool,
+    #[serde(default)]
+    pub preferences: bool,
 }
 
 impl MigrationSections {
     fn any(&self) -> bool {
-        self.profile || self.mail_accounts || self.notifications || self.cleanup
+        self.profile || self.mail_accounts || self.notifications || self.cleanup || self.preferences
     }
 }
 
@@ -90,6 +96,8 @@ pub struct ImportReport {
     pub users_imported: u32,
     pub accounts_imported: u32,
     pub rules_imported: u32,
+    pub signatures_imported: u32,
+    pub preferences_imported: u32,
     pub conflicts: Vec<String>,
 }
 
@@ -104,12 +112,20 @@ struct ArchivePayload {
 
 #[derive(Serialize, Deserialize)]
 struct ArchiveUser {
+    #[serde(default)]
     auth: Option<ArchiveAuth>,
+    #[serde(default)]
     profile: Option<ArchiveProfile>,
+    #[serde(default)]
     mail_accounts: Option<Vec<AccountInput>>,
+    #[serde(default)]
     notifications: Option<NotificationSettings>,
+    #[serde(default)]
     mail_settings: Option<MailSettings>,
+    #[serde(default)]
     cleanup_rules: Option<Vec<ArchiveCleanupRule>>,
+    #[serde(default)]
+    preferences: Option<ArchivePreferences>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -145,6 +161,37 @@ struct ArchiveCleanupRule {
     older_than_days: Option<u32>,
     delete_from_server: bool,
     enabled: bool,
+    #[serde(default)]
+    match_mode: RuleMatchMode,
+    #[serde(default)]
+    conditions: Vec<RuleCondition>,
+    #[serde(default)]
+    actions: Vec<RuleAction>,
+    #[serde(default)]
+    position: i32,
+    #[serde(default)]
+    stop_processing: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchivePreferences {
+    mail: MailPreferences,
+    signatures: Vec<ArchiveSignature>,
+    account_identities: Vec<ArchiveAccountIdentity>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveSignature {
+    name: String,
+    body_text: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveAccountIdentity {
+    account_email: String,
+    display_name: String,
+    signature_name: Option<String>,
+    is_default: bool,
 }
 
 #[derive(Clone)]
@@ -265,6 +312,8 @@ impl MigrationService {
             users_imported: 0,
             accounts_imported: 0,
             rules_imported: 0,
+            signatures_imported: 0,
+            preferences_imported: 0,
             conflicts: Vec::new(),
         };
         if request.archive.scope == MigrationScope::Mine {
@@ -438,11 +487,48 @@ impl MigrationService {
                     older_than_days: rule.older_than_days,
                     delete_from_server: rule.delete_from_server,
                     enabled: rule.enabled,
+                    match_mode: rule.match_mode,
+                    conditions: rule.conditions,
+                    actions: rule.actions,
+                    position: rule.position,
+                    stop_processing: rule.stop_processing,
                 })
                 .collect();
             (Some(settings), Some(rules))
         } else {
             (None, None)
+        };
+        let preferences = if sections.preferences {
+            let repository = PreferencesRepository::new(self.db.clone());
+            let signatures = repository.list_signatures(user_id).await?;
+            let signature_names = signatures
+                .iter()
+                .map(|signature| (signature.id.to_string(), signature.name.clone()))
+                .collect::<HashMap<_, _>>();
+            Some(ArchivePreferences {
+                mail: repository.mail(user_id).await?,
+                signatures: signatures
+                    .into_iter()
+                    .map(|signature| ArchiveSignature {
+                        name: signature.name,
+                        body_text: signature.body_text,
+                    })
+                    .collect(),
+                account_identities: account_models
+                    .iter()
+                    .map(|account| ArchiveAccountIdentity {
+                        account_email: account.email.clone(),
+                        display_name: account.display_name.clone(),
+                        signature_name: account
+                            .signature_id
+                            .as_ref()
+                            .and_then(|id| signature_names.get(id).cloned()),
+                        is_default: account.is_default,
+                    })
+                    .collect(),
+            })
+        } else {
+            None
         };
         Ok(ArchiveUser {
             auth,
@@ -451,6 +537,7 @@ impl MigrationService {
             notifications,
             mail_settings,
             cleanup_rules,
+            preferences,
         })
     }
 
@@ -527,6 +614,7 @@ impl MigrationService {
         mail_setting::ActiveModel {
             user_id: Set(id.to_string()),
             keep_local_after_server_delete: Set(true),
+            sync_fetch_limit: Set(Some(50)),
             updated_at: Set(now),
         }
         .insert(self.db.connection())
@@ -676,6 +764,11 @@ impl MigrationService {
                             CleanupRuleInput {
                                 account_id,
                                 name: rule.name,
+                                match_mode: rule.match_mode,
+                                conditions: rule.conditions,
+                                actions: rule.actions,
+                                position: Some(rule.position),
+                                stop_processing: rule.stop_processing,
                                 sender_contains: rule.sender_contains,
                                 subject_contains: rule.subject_contains,
                                 body_contains: rule.body_contains,
@@ -688,6 +781,72 @@ impl MigrationService {
                     report.rules_imported += 1;
                 }
             }
+        }
+        if sections.preferences
+            && let Some(preferences) = archived.preferences
+        {
+            let repository = PreferencesRepository::new(self.db.clone());
+            repository.update_mail(user_id, preferences.mail).await?;
+            let mut signature_map = HashMap::new();
+            let existing_signatures = repository.list_signatures(user_id).await?;
+            for archived_signature in preferences.signatures {
+                let input = SignatureInput {
+                    name: archived_signature.name.clone(),
+                    body_text: archived_signature.body_text,
+                };
+                let signature = if let Some(existing) = existing_signatures
+                    .iter()
+                    .find(|item| item.name.eq_ignore_ascii_case(&archived_signature.name))
+                {
+                    repository
+                        .update_signature(user_id, existing.id, input)
+                        .await?
+                } else {
+                    repository.create_signature(user_id, input).await?
+                };
+                signature_map.insert(signature.name.to_ascii_lowercase(), signature.id);
+                report.signatures_imported += 1;
+            }
+            let accounts = AccountRepository::new(self.db.clone(), self.vault.clone());
+            let account_map = accounts
+                .list(user_id)
+                .await?
+                .into_iter()
+                .map(|account| (account.email.to_ascii_lowercase(), account))
+                .collect::<HashMap<_, _>>();
+            for identity in preferences.account_identities {
+                let Some(account) = account_map.get(&identity.account_email.to_ascii_lowercase())
+                else {
+                    report.conflicts.push(format!(
+                        "mail identity references a missing account: {}",
+                        identity.account_email
+                    ));
+                    continue;
+                };
+                let signature_id = identity
+                    .signature_name
+                    .as_ref()
+                    .and_then(|name| signature_map.get(&name.to_ascii_lowercase()).copied());
+                if identity.signature_name.is_some() && signature_id.is_none() {
+                    report.conflicts.push(format!(
+                        "mail identity references a missing signature: {}",
+                        identity.account_email
+                    ));
+                    continue;
+                }
+                accounts
+                    .update_identity(
+                        user_id,
+                        account.id,
+                        AccountIdentityInput {
+                            display_name: identity.display_name,
+                            signature_id,
+                            is_default: identity.is_default,
+                        },
+                    )
+                    .await?;
+            }
+            report.preferences_imported += 1;
         }
         Ok(())
     }
@@ -720,6 +879,7 @@ fn validate_section_subset(
         || (requested.mail_accounts && !available.mail_accounts)
         || (requested.notifications && !available.notifications)
         || (requested.cleanup && !available.cleanup)
+        || (requested.preferences && !available.preferences)
     {
         return Err(AppError::Validation(
             "selected migration sections are not present in the archive".into(),
@@ -754,6 +914,7 @@ fn validate_archive_user(
         || (!sections.notifications && archived.notifications.is_some())
         || (!sections.cleanup
             && (archived.mail_settings.is_some() || archived.cleanup_rules.is_some()))
+        || (!sections.preferences && archived.preferences.is_some())
     {
         return Err(AppError::Validation(
             "migration archive contains data outside its declared sections".into(),
@@ -777,6 +938,9 @@ fn validate_archive_user(
     if let Some(settings) = archived.notifications.as_ref() {
         crate::notifications::validate_settings(settings)?;
     }
+    if let Some(settings) = archived.mail_settings.as_ref() {
+        settings.validate()?;
+    }
     if let Some(rules) = archived.cleanup_rules.as_ref() {
         if rules.len() > MAX_RULES_PER_USER {
             return Err(AppError::Validation(
@@ -796,6 +960,11 @@ fn validate_archive_user(
             let mut input = CleanupRuleInput {
                 account_id: None,
                 name: rule.name.clone(),
+                match_mode: rule.match_mode,
+                conditions: rule.conditions.clone(),
+                actions: rule.actions.clone(),
+                position: Some(rule.position),
+                stop_processing: rule.stop_processing,
                 sender_contains: rule.sender_contains.clone(),
                 subject_contains: rule.subject_contains.clone(),
                 body_contains: rule.body_contains.clone(),
@@ -804,6 +973,48 @@ fn validate_archive_user(
                 enabled: rule.enabled,
             };
             input.normalize()?;
+        }
+    }
+    if let Some(preferences) = archived.preferences.as_ref() {
+        let mut mail = preferences.mail.clone();
+        mail.normalize()?;
+        if preferences.signatures.len() > MAX_SIGNATURES_PER_USER
+            || preferences.account_identities.len() > MAX_ACCOUNTS_PER_USER
+        {
+            return Err(AppError::Validation(
+                "migration archive contains too many mail preferences".into(),
+            ));
+        }
+        let mut names = std::collections::HashSet::new();
+        for signature in &preferences.signatures {
+            let mut input = SignatureInput {
+                name: signature.name.clone(),
+                body_text: signature.body_text.clone(),
+            };
+            input.normalize()?;
+            if !names.insert(input.name.to_ascii_lowercase()) {
+                return Err(AppError::Validation(
+                    "migration archive contains duplicate signature names".into(),
+                ));
+            }
+        }
+        for identity in &preferences.account_identities {
+            if identity.account_email.len() > 254
+                || !identity.account_email.contains('@')
+                || identity.account_email.chars().any(char::is_control)
+                || identity.display_name.is_empty()
+                || identity.display_name.chars().count() > 80
+                || identity.display_name.chars().any(char::is_control)
+                || identity.signature_name.as_ref().is_some_and(|name| {
+                    name.is_empty()
+                        || name.chars().count() > 120
+                        || name.chars().any(char::is_control)
+                })
+            {
+                return Err(AppError::Validation(
+                    "imported mail identity is invalid".into(),
+                ));
+            }
         }
     }
     Ok(())

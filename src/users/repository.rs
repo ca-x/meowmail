@@ -387,6 +387,7 @@ async fn ensure_user_defaults(
         mail_setting::ActiveModel {
             user_id: Set(user_id.to_string()),
             keep_local_after_server_delete: Set(true),
+            sync_fetch_limit: Set(Some(50)),
             updated_at: Set(now),
         }
         .insert(transaction)

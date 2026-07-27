@@ -14,6 +14,11 @@ pub struct Model {
     pub older_than_days: Option<i32>,
     pub delete_from_server: bool,
     pub enabled: bool,
+    pub position: i32,
+    pub match_mode: String,
+    pub conditions_json: String,
+    pub actions_json: String,
+    pub stop_processing: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }

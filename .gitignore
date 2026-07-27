@@ -28,6 +28,7 @@ web/coverage/
 web/playwright-report/
 web/test-results/
 web/tsconfig.tsbuildinfo
+web/public/file-viewer/
 
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

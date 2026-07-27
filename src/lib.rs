@@ -5,8 +5,10 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod mail;
+pub mod mcp;
 pub mod messages;
 pub mod notifications;
+pub mod preferences;
 pub mod security;
 pub mod users;
 pub mod web;
@@ -30,6 +32,7 @@ use crate::{
     auth::{OidcService, SessionStore},
     config::Config,
     db::Database,
+    mcp::{DraftRepository, McpRateLimiter},
     notifications::NotificationRunner,
     security::CredentialVault,
     users::UserRepository,
@@ -43,12 +46,22 @@ pub struct AppState {
     pub sessions: SessionStore,
     pub oidc: Option<OidcService>,
     pub notifications: NotificationRunner,
+    pub mcp_limits: McpRateLimiter,
 }
 
 impl AppState {
     pub async fn initialize(config: Config) -> anyhow::Result<Self> {
         tokio::fs::create_dir_all(&config.data_dir).await?;
         let db = Database::connect(&config.database_path()).await?;
+        let interrupted_sends = DraftRepository::new(db.clone())
+            .reconcile_interrupted_sends()
+            .await?;
+        if interrupted_sends > 0 {
+            tracing::warn!(
+                count = interrupted_sends,
+                "MCP drafts interrupted during sending were marked ambiguous"
+            );
+        }
         let vault = CredentialVault::load(
             config.vault_secret.as_ref(),
             &config.vault_salt_path(),
@@ -73,6 +86,7 @@ impl AppState {
             sessions: SessionStore::default(),
             oidc,
             notifications,
+            mcp_limits: McpRateLimiter::default(),
         })
     }
 }
@@ -84,11 +98,14 @@ pub fn build_router(state: AppState) -> Router {
         .merge(cleanup::routes())
         .merge(accounts::routes())
         .merge(messages::routes())
+        .merge(mcp::routes())
         .merge(notifications::routes())
+        .merge(preferences::routes())
         .merge(users::routes());
 
     Router::new()
         .nest("/api/v1", api)
+        .merge(mcp::protocol_routes(state.clone()))
         .fallback(web::serve)
         .layer(middleware::from_fn(security_headers))
         .layer(RequestBodyLimitLayer::new(16 * 1024 * 1024))
@@ -112,7 +129,7 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
-            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob:; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
         ),
     );
     headers.insert(

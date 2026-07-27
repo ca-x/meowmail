@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react"
 import {
-  Archive, BellRing, ChevronDown, Download, Globe2, KeyRound, LockKeyhole,
-  MailCheck, Moon, Palette, Pencil, Play, Plus, Save, ShieldCheck, Sun,
-  Trash2, Upload, UserRound, X,
+  Archive, BellRing, Bot, ChevronDown, Copy, Download, Globe2, KeyRound,
+  LockKeyhole, MailCheck, Moon, Palette, Play, RotateCw, Save,
+  ShieldCheck, Sun, Upload, UserRound, X,
 } from "lucide-react"
 
 import { api } from "../../app/api"
 import type {
-  CleanupRule, CleanupRuleInput, MailAccount, MailSettings, MigrationArchive,
-  MigrationScope, MigrationSections, NotificationSettings, PublicUser, SessionResponse,
+  CleanupRule, MailAccount, MailPreferences, MailSettings, McpSettings,
+  MigrationArchive, MigrationScope, MigrationSections, NotificationSettings, PublicUser,
+  SessionResponse,
 } from "../../app/types"
 import { useDialogBehavior } from "../../app/useDialogBehavior"
 import { useI18n } from "../../i18n/I18nProvider"
 import type { MessageKey } from "../../i18n/messages"
 import { useTheme, type ThemeMode } from "../../theme/ThemeProvider"
+import { MailExperienceSettings } from "./MailExperienceSettings"
+import { ReceiveRulesEditor } from "./ReceiveRulesEditor"
 
 const notificationDefaults: NotificationSettings = {
   enabled: false,
@@ -27,38 +30,19 @@ const defaultSections: MigrationSections = {
   mailAccounts: true,
   notifications: true,
   cleanup: true,
-}
-
-interface RuleDraft {
-  id?: string
-  accountId: string
-  name: string
-  senderContains: string
-  subjectContains: string
-  bodyContains: string
-  olderThanDays: string
-  deleteFromServer: boolean
-  enabled: boolean
-}
-
-const emptyRule: RuleDraft = {
-  accountId: "",
-  name: "",
-  senderContains: "",
-  subjectContains: "",
-  bodyContains: "",
-  olderThanDays: "",
-  deleteFromServer: false,
-  enabled: true,
+  preferences: true,
 }
 
 type Notice = { key: MessageKey; values?: Record<string, string | number>; error?: boolean }
-type BusyAction = "profile" | "avatar" | "pin" | "lock" | "retention" | "rule" | "notification" | "test" | "export" | "import"
+type BusyAction = "profile" | "avatar" | "pin" | "lock" | "mcp" | "retention" | "notification" | "test" | "export" | "import"
 
-export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, onClose, onOpenAccounts }: {
+export function SettingsDialog({ session, accounts, mailPreferences, onSessionChanged, onMailPreferencesChanged, onAccountsChanged, onLocked, onClose, onOpenAccounts }: {
   session: SessionResponse
   accounts: MailAccount[]
+  mailPreferences: MailPreferences
   onSessionChanged: (session: SessionResponse) => void
+  onMailPreferencesChanged: (preferences: MailPreferences) => void
+  onAccountsChanged: (accounts: MailAccount[]) => void
   onLocked: (session: SessionResponse) => void
   onClose: () => void
   onOpenAccounts: () => void
@@ -69,9 +53,20 @@ export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, 
   const [nickname, setNickname] = useState(session.user.nickname)
   const [pin, setPin] = useState("")
   const [notifications, setNotifications] = useState<NotificationSettings>(notificationDefaults)
-  const [mailSettings, setMailSettings] = useState<MailSettings>({ keepLocalAfterServerDelete: true })
+  const [mailSettings, setMailSettings] = useState<MailSettings>({
+    keepLocalAfterServerDelete: true,
+    syncFetchLimit: 50,
+  })
+  const [syncFetchMode, setSyncFetchMode] = useState<"all" | "limited">("limited")
+  const [syncFetchLimitInput, setSyncFetchLimitInput] = useState("50")
+  const [mcpSettings, setMcpSettings] = useState<McpSettings>({
+    hasToken: false,
+    allowDelete: false,
+    endpoint: "/mcp",
+  })
+  const [mcpToken, setMcpToken] = useState<string | null>(null)
   const [rules, setRules] = useState<CleanupRule[]>([])
-  const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null)
+  const [preferences, setPreferences] = useState(mailPreferences)
   const [migrationScope, setMigrationScope] = useState<MigrationScope>("mine")
   const [exportSections, setExportSections] = useState(defaultSections)
   const [importSections, setImportSections] = useState(defaultSections)
@@ -86,15 +81,22 @@ export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, 
   useDialogBehavior(dialogRef, onClose)
 
   const loadSettings = useCallback(async () => {
-    const [nextNotifications, nextMailSettings, nextRules] = await Promise.all([
+    const [nextNotifications, nextMailSettings, nextMcpSettings, nextRules, nextPreferences] = await Promise.all([
       api.notificationSettings(),
       api.mailSettings(),
+      api.mcpSettings(),
       api.cleanupRules(),
+      api.mailPreferences(),
     ])
     setNotifications(nextNotifications)
     setMailSettings(nextMailSettings)
+    setSyncFetchMode(nextMailSettings.syncFetchLimit === null ? "all" : "limited")
+    setSyncFetchLimitInput(String(nextMailSettings.syncFetchLimit ?? 50))
+    setMcpSettings(nextMcpSettings)
     setRules(nextRules)
-  }, [])
+    setPreferences(nextPreferences)
+    onMailPreferencesChanged(nextPreferences)
+  }, [onMailPreferencesChanged])
 
   useEffect(() => {
     loadSettings().catch(() => setNotice({ key: "genericError", error: true }))
@@ -193,12 +195,70 @@ export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, 
     }
   }
 
+  async function generateMcpToken() {
+    if (mcpSettings.hasToken && !confirm(t("mcpRotateConfirm"))) return
+    setBusy("mcp")
+    setNotice(null)
+    try {
+      const generated = await api.generateMcpToken()
+      const { token, ...settings } = generated
+      setMcpSettings(settings)
+      setMcpToken(token)
+      setNotice({ key: "mcpTokenGenerated" })
+    } catch {
+      setNotice({ key: "genericError", error: true })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function toggleMcpDelete(allowDelete: boolean) {
+    const previous = mcpSettings
+    setMcpSettings({ ...mcpSettings, allowDelete })
+    setBusy("mcp")
+    try {
+      setMcpSettings(await api.updateMcpSettings(allowDelete))
+      setNotice({ key: allowDelete ? "mcpDeleteEnabled" : "mcpDeleteDisabled" })
+    } catch {
+      setMcpSettings(previous)
+      setNotice({ key: "genericError", error: true })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function revokeMcpToken() {
+    if (!confirm(t("mcpRevokeConfirm"))) return
+    setBusy("mcp")
+    try {
+      await api.revokeMcpToken()
+      setMcpSettings({ hasToken: false, allowDelete: false, endpoint: "/mcp" })
+      setMcpToken(null)
+      setNotice({ key: "mcpTokenRevoked" })
+    } catch {
+      setNotice({ key: "genericError", error: true })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function copyMcpToken() {
+    if (!mcpToken) return
+    try {
+      await navigator.clipboard.writeText(mcpToken)
+      setNotice({ key: "mcpTokenCopied" })
+    } catch {
+      setNotice({ key: "mcpCopyFailed", error: true })
+    }
+  }
+
   async function toggleRetention(keep: boolean) {
     const previous = mailSettings
-    setMailSettings({ keepLocalAfterServerDelete: keep })
+    const next = { ...mailSettings, keepLocalAfterServerDelete: keep }
+    setMailSettings(next)
     setBusy("retention")
     try {
-      setMailSettings(await api.updateMailSettings({ keepLocalAfterServerDelete: keep }))
+      setMailSettings(await api.updateMailSettings(next))
       setNotice({ key: "retentionSaved" })
     } catch {
       setMailSettings(previous)
@@ -208,55 +268,26 @@ export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, 
     }
   }
 
-  function editRule(rule?: CleanupRule) {
-    setRuleDraft(rule ? {
-      id: rule.id,
-      accountId: rule.accountId || "",
-      name: rule.name,
-      senderContains: rule.senderContains || "",
-      subjectContains: rule.subjectContains || "",
-      bodyContains: rule.bodyContains || "",
-      olderThanDays: rule.olderThanDays?.toString() || "",
-      deleteFromServer: rule.deleteFromServer,
-      enabled: rule.enabled,
-    } : { ...emptyRule })
-  }
-
-  async function saveRule(event: FormEvent) {
+  async function saveSyncFetchScope(event: FormEvent) {
     event.preventDefault()
-    if (!ruleDraft) return
-    const input: CleanupRuleInput = {
-      accountId: ruleDraft.accountId || null,
-      name: ruleDraft.name,
-      senderContains: ruleDraft.senderContains || null,
-      subjectContains: ruleDraft.subjectContains || null,
-      bodyContains: ruleDraft.bodyContains || null,
-      olderThanDays: ruleDraft.olderThanDays ? Number(ruleDraft.olderThanDays) : null,
-      deleteFromServer: ruleDraft.deleteFromServer,
-      enabled: ruleDraft.enabled,
+    const parsedLimit = Number(syncFetchLimitInput)
+    if (syncFetchMode === "limited"
+      && (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 10_000)) {
+      setNotice({ key: "syncFetchInvalid", error: true })
+      return
     }
-    setBusy("rule")
+    const next: MailSettings = {
+      ...mailSettings,
+      syncFetchLimit: syncFetchMode === "all" ? null : parsedLimit,
+    }
+    setBusy("retention")
     setNotice(null)
     try {
-      if (ruleDraft.id) await api.updateCleanupRule(ruleDraft.id, input)
-      else await api.createCleanupRule(input)
-      setRules(await api.cleanupRules())
-      setRuleDraft(null)
-      setNotice({ key: "cleanupRuleSaved" })
-    } catch {
-      setNotice({ key: "cleanupRuleInvalid", error: true })
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  async function deleteRule(id: string) {
-    setBusy("rule")
-    try {
-      await api.deleteCleanupRule(id)
-      setRules((current) => current.filter((rule) => rule.id !== id))
-      if (ruleDraft?.id === id) setRuleDraft(null)
-      setNotice({ key: "cleanupRuleDeleted" })
+      const saved = await api.updateMailSettings(next)
+      setMailSettings(saved)
+      setSyncFetchMode(saved.syncFetchLimit === null ? "all" : "limited")
+      setSyncFetchLimitInput(String(saved.syncFetchLimit ?? 50))
+      setNotice({ key: "syncFetchSaved" })
     } catch {
       setNotice({ key: "genericError", error: true })
     } finally {
@@ -370,6 +401,12 @@ export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, 
     }
   }
 
+  const parsedSyncFetchLimit = Number(syncFetchLimitInput)
+  const syncFetchLimitValid = syncFetchMode === "all"
+    || (Number.isInteger(parsedSyncFetchLimit) && parsedSyncFetchLimit >= 1 && parsedSyncFetchLimit <= 10_000)
+  const nextSyncFetchLimit = syncFetchMode === "all" ? null : parsedSyncFetchLimit
+  const syncFetchScopeChanged = syncFetchLimitValid && nextSyncFetchLimit !== mailSettings.syncFetchLimit
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section ref={dialogRef} className="modal-card settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1}>
@@ -402,6 +439,14 @@ export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, 
               </form>
             </div>
           </section>
+
+          <MailExperienceSettings
+            initialPreferences={preferences}
+            accounts={accounts}
+            onPreferencesChanged={(next) => { setPreferences(next); onMailPreferencesChanged(next) }}
+            onAccountsChanged={onAccountsChanged}
+            onNotice={(key, error) => setNotice({ key, error })}
+          />
 
           <section className="settings-section">
             <div className="settings-section-heading"><Palette size={18} /><div><h3>{t("appearance")}</h3><p>{t("language")} · {t("theme")}</p></div></div>
@@ -446,6 +491,38 @@ export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, 
           </section>
 
           <section className="settings-section">
+            <div className="settings-section-heading"><Bot size={18} /><div><h3>{t("mcpAccess")}</h3><p>{t("mcpAccessDescription")}</p></div></div>
+            <div className="settings-card mcp-card">
+              <div className="mcp-status-row">
+                <div><strong>{t("mcpPersonalToken")}</strong><small>{mcpSettings.hasToken ? t("mcpTokenActive") : t("mcpTokenInactive")}</small></div>
+                <span className={`scope-chip ${mcpSettings.hasToken ? "active" : ""}`}>{mcpSettings.hasToken ? t("enabled") : t("disabled")}</span>
+              </div>
+              <div className="mcp-endpoint-row"><span>{t("mcpEndpoint")}</span><code>{`${window.location.origin}${mcpSettings.endpoint}`}</code></div>
+              {mcpToken && (
+                <div className="mcp-token-reveal" role="status">
+                  <div><strong>{t("mcpCopyNow")}</strong><small>{t("mcpShownOnce")}</small></div>
+                  <div className="mcp-token-field">
+                    <input aria-label={t("mcpPersonalToken")} autoComplete="off" className="mono-input" readOnly spellCheck={false} value={mcpToken} onFocus={(event) => event.currentTarget.select()} />
+                    <button className="secondary-button" type="button" onClick={copyMcpToken}><Copy size={14} />{t("copy")}</button>
+                  </div>
+                </div>
+              )}
+              {mcpSettings.hasToken && (
+                <label className="toggle-row mcp-delete-toggle">
+                  <span><strong>{t("mcpAllowDelete")}</strong><small>{t("mcpAllowDeleteDescription")}</small></span>
+                  <input type="checkbox" checked={mcpSettings.allowDelete} disabled={busy === "mcp"} onChange={(event) => void toggleMcpDelete(event.target.checked)} />
+                  <span className="toggle" aria-hidden="true" />
+                </label>
+              )}
+              <div className="mcp-actions">
+                <button className="secondary-button" type="button" disabled={busy === "mcp"} onClick={generateMcpToken}>{busy === "mcp" ? <span className="spinner spinner-small" /> : mcpSettings.hasToken ? <RotateCw size={14} /> : <KeyRound size={14} />}{mcpSettings.hasToken ? t("mcpRegenerate") : t("mcpGenerate")}</button>
+                {mcpSettings.hasToken && <button className="quiet-button danger-text" type="button" disabled={busy === "mcp"} onClick={revokeMcpToken}>{t("mcpRevoke")}</button>}
+                {mcpSettings.lastUsedAt && <small className="mcp-last-used">{t("mcpLastUsed", { time: new Date(mcpSettings.lastUsedAt * 1000).toLocaleString(locale) })}</small>}
+              </div>
+            </div>
+          </section>
+
+          <section className="settings-section">
             <div className="settings-section-heading"><MailCheck size={18} /><div><h3>{t("mailRetention")}</h3><p>{t("mailRetentionDescription")}</p></div></div>
             <div className="settings-card mail-policy-card">
               <label className="toggle-row compact-toggle">
@@ -453,35 +530,26 @@ export function SettingsDialog({ session, accounts, onSessionChanged, onLocked, 
                 <input type="checkbox" checked={mailSettings.keepLocalAfterServerDelete} disabled={busy === "retention"} onChange={(event) => void toggleRetention(event.target.checked)} />
                 <span className="toggle" aria-hidden="true" />
               </label>
-              <div className="cleanup-heading"><div><strong>{t("automaticCleanup")}</strong><small>{t("automaticCleanupDescription")}</small></div><button className="quiet-button" type="button" onClick={() => editRule()}><Plus size={14} />{t("addRule")}</button></div>
-              <div className="cleanup-list">
-                {!rules.length && <p className="empty-inline">{t("noCleanupRules")}</p>}
-                {rules.map((rule) => (
-                  <div className="cleanup-rule-row" key={rule.id}>
-                    <span className={`status-dot ${rule.enabled ? "enabled" : ""}`} aria-hidden="true" />
-                    <div><strong>{rule.name}</strong><small>{cleanupSummary(rule, accounts, t)}</small></div>
-                    {rule.deleteFromServer && <span className="danger-chip">{t("serverDelete")}</span>}
-                    <button className="icon-button small" type="button" onClick={() => editRule(rule)} aria-label={t("edit")}><Pencil size={14} /></button>
-                    <button className="icon-button small danger-text" type="button" onClick={() => void deleteRule(rule.id)} aria-label={t("delete")}><Trash2 size={14} /></button>
+              <form className="sync-policy" aria-label={t("syncFetchScope")} onSubmit={saveSyncFetchScope}>
+                <div className="sync-policy-heading">
+                  <span><strong>{t("syncFetchScope")}</strong><small>{t("syncFetchScopeDescription")}</small></span>
+                  <div className="segmented-control compact" role="group" aria-label={t("syncFetchMode")}>
+                    <button type="button" className={syncFetchMode === "all" ? "active" : ""} aria-pressed={syncFetchMode === "all"} onClick={() => setSyncFetchMode("all")}>{t("syncFetchAll")}</button>
+                    <button type="button" className={syncFetchMode === "limited" ? "active" : ""} aria-pressed={syncFetchMode === "limited"} onClick={() => setSyncFetchMode("limited")}>{t("syncFetchRecent")}</button>
                   </div>
-                ))}
-              </div>
-              {ruleDraft && (
-                <form className="cleanup-editor" onSubmit={saveRule}>
-                  <div className="cleanup-editor-heading"><strong>{ruleDraft.id ? t("editRule") : t("newRule")}</strong><button className="icon-button small" type="button" onClick={() => setRuleDraft(null)} aria-label={t("close")}><X size={14} /></button></div>
-                  <div className="form-grid two-columns">
-                    <label className="form-field"><span>{t("ruleName")}</span><input autoFocus value={ruleDraft.name} onChange={(event) => setRuleDraft({ ...ruleDraft, name: event.target.value })} placeholder={t("ruleNamePlaceholder")} /></label>
-                    <label className="form-field"><span>{t("mailAccountScope")}</span><select value={ruleDraft.accountId} onChange={(event) => setRuleDraft({ ...ruleDraft, accountId: event.target.value })}><option value="">{t("allAccounts")}</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName}</option>)}</select></label>
-                    <label className="form-field"><span>{t("senderContains")}</span><input value={ruleDraft.senderContains} onChange={(event) => setRuleDraft({ ...ruleDraft, senderContains: event.target.value })} placeholder={t("senderContainsPlaceholder")} /></label>
-                    <label className="form-field"><span>{t("subjectContains")}</span><input value={ruleDraft.subjectContains} onChange={(event) => setRuleDraft({ ...ruleDraft, subjectContains: event.target.value })} placeholder={t("subjectContainsPlaceholder")} /></label>
-                    <label className="form-field"><span>{t("bodyContains")}</span><input value={ruleDraft.bodyContains} onChange={(event) => setRuleDraft({ ...ruleDraft, bodyContains: event.target.value })} placeholder={t("bodyContainsPlaceholder")} /></label>
-                    <label className="form-field"><span>{t("olderThanDays")}</span><input type="number" min="1" max="36500" value={ruleDraft.olderThanDays} onChange={(event) => setRuleDraft({ ...ruleDraft, olderThanDays: event.target.value })} placeholder={t("olderThanDaysPlaceholder")} /></label>
-                  </div>
-                  <label className="check-row inline-check"><input type="checkbox" checked={ruleDraft.enabled} onChange={(event) => setRuleDraft({ ...ruleDraft, enabled: event.target.checked })} /><span className="custom-check">✓</span>{t("enableRule")}</label>
-                  <label className="check-row inline-check danger-check"><input type="checkbox" checked={ruleDraft.deleteFromServer} onChange={(event) => setRuleDraft({ ...ruleDraft, deleteFromServer: event.target.checked })} /><span className="custom-check">✓</span><span>{t("deleteFromServer")}<small>{t("deleteFromServerWarning")}</small></span></label>
-                  <div className="editor-actions"><button className="quiet-button" type="button" onClick={() => setRuleDraft(null)}>{t("cancel")}</button><button className="primary-button" type="submit" disabled={busy === "rule"}>{busy === "rule" ? <span className="spinner spinner-small" /> : <Save size={14} />}{t("saveRule")}</button></div>
-                </form>
-              )}
+                </div>
+                <div className="sync-policy-controls">
+                  {syncFetchMode === "limited" ? (
+                    <label className="form-field sync-limit-field">
+                      <span>{t("syncFetchCount")}</span>
+                      <input aria-label={t("syncFetchCount")} type="number" inputMode="numeric" min="1" max="10000" step="1" value={syncFetchLimitInput} onChange={(event) => setSyncFetchLimitInput(event.target.value)} placeholder={t("syncFetchCountPlaceholder")} />
+                      <small>{t("syncFetchCountDescription")}</small>
+                    </label>
+                  ) : <small className="sync-all-note">{t("syncFetchAllDescription")}</small>}
+                  <button className="secondary-button" type="submit" disabled={busy === "retention" || !syncFetchScopeChanged}><Save size={14} />{t("save")}</button>
+                </div>
+              </form>
+              <ReceiveRulesEditor rules={rules} accounts={accounts} onRulesChanged={setRules} onNotice={(key, error) => setNotice({ key, error })} />
             </div>
           </section>
 
@@ -549,6 +617,7 @@ function SectionPicker({ value, available, onChange, t }: {
     ["mailAccounts", "mailAccountsAndCredentials", "mailAccountsAndCredentialsDescription"],
     ["notifications", "notificationConfiguration", "notificationConfigurationDescription"],
     ["cleanup", "retentionAndCleanupRules", "retentionAndCleanupRulesDescription"],
+    ["preferences", "mailPreferencesAndSignatures", "mailPreferencesAndSignaturesDescription"],
   ]
   return (
     <div className="migration-sections">
@@ -567,22 +636,5 @@ function SectionPicker({ value, available, onChange, t }: {
 }
 
 function hasSection(sections: MigrationSections) {
-  return sections.profile || sections.mailAccounts || sections.notifications || sections.cleanup
-}
-
-function cleanupSummary(
-  rule: CleanupRule,
-  accounts: MailAccount[],
-  t: (key: MessageKey, values?: Record<string, string | number>) => string,
-) {
-  const account = rule.accountId
-    ? accounts.find((item) => item.id === rule.accountId)?.displayName || t("oneAccount")
-    : t("allAccounts")
-  const conditions = [
-    rule.senderContains && t("senderCondition", { value: rule.senderContains }),
-    rule.subjectContains && t("subjectCondition", { value: rule.subjectContains }),
-    rule.bodyContains && t("bodyCondition", { value: rule.bodyContains }),
-    rule.olderThanDays && t("ageCondition", { days: rule.olderThanDays }),
-  ].filter(Boolean)
-  return `${account} · ${conditions.join(" · ")}`
+  return sections.profile || sections.mailAccounts || sections.notifications || sections.cleanup || sections.preferences
 }
