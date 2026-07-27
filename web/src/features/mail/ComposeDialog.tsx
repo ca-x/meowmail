@@ -1,8 +1,15 @@
-import { useMemo, useRef, useState, type FormEvent } from "react"
-import { AtSign, ChevronDown, Paperclip, Send, X } from "lucide-react"
+import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
+import { IconButton } from "@astryxdesign/core/IconButton"
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
+import { Selector } from "@astryxdesign/core/Selector"
+import { TextArea } from "@astryxdesign/core/TextArea"
+import { TextInput } from "@astryxdesign/core/TextInput"
+import { AtSign, Paperclip, Send } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react"
 
 import { api } from "../../app/api"
-import { useDialogBehavior } from "../../app/useDialogBehavior"
 import type { MailAccount, MailPreferences } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 
@@ -15,7 +22,8 @@ export interface ComposeDraft {
   body?: string
 }
 
-export function ComposeDialog({ accounts, activeAccountId, preferences, draft, onClose, onSent }: {
+export function ComposeDialog({ isOpen = true, accounts, activeAccountId, preferences, draft, onClose, onSent }: {
+  isOpen?: boolean
   accounts: MailAccount[]
   activeAccountId: string | null
   preferences: MailPreferences
@@ -40,16 +48,29 @@ export function ComposeDialog({ accounts, activeAccountId, preferences, draft, o
   const [showCopies, setShowCopies] = useState(Boolean(draft?.cc || draft?.bcc))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLElement>(null)
   const busyRef = useRef(false)
   const dirty = Boolean(to || cc || bcc || subject || body)
+  const editorStyle = {
+    "--compose-font-size": `${preferences.composeFontSize}px`,
+    "--compose-font-color": preferences.composeFontColor,
+  } as CSSProperties
+
+  useEffect(() => {
+    if (!isOpen) return
+    setAccountId(defaultAccount?.id || "")
+    setTo(draft?.to || "")
+    setCc(draft?.cc || "")
+    setBcc(draft?.bcc || "")
+    setSubject(draft?.subject || "")
+    setBody(draft?.body || "")
+    setShowCopies(Boolean(draft?.cc || draft?.bcc))
+    setError(null)
+  }, [defaultAccount?.id, draft, isOpen])
 
   function requestClose() {
     if (busyRef.current) return
     if (!dirty || window.confirm(t("discardDraftConfirm"))) onClose()
   }
-
-  useDialogBehavior(dialogRef, requestClose)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -75,63 +96,95 @@ export function ComposeDialog({ accounts, activeAccountId, preferences, draft, o
   }
 
   return (
-    <div className="modal-backdrop compose-backdrop" role="presentation">
-      <section ref={dialogRef} className="modal-card compose-dialog" role="dialog" aria-modal="true" aria-labelledby="compose-title" tabIndex={-1}>
-        <header className="compose-header">
-          <div>
-            <span className="compose-icon"><AtSign size={18} /></span>
-            <h2 id="compose-title">{t("compose")}</h2>
-          </div>
-          <button className="icon-button" type="button" onClick={requestClose} disabled={busy} aria-label={t("close")}><X size={18} /></button>
-        </header>
-        <form onSubmit={submit} className="compose-form">
-          <div className="compose-line">
-            <label className="compose-label" htmlFor="compose-from">{t("from")}</label>
-            <div className="compose-account-select">
-              <select id="compose-from" value={accountId} onChange={(event) => setAccountId(event.target.value)}>
-                {accounts.map((account) => <option key={account.id} value={account.id}>{account.displayName} · {account.email}</option>)}
-              </select>
-              <ChevronDown size={14} />
-            </div>
-          </div>
-          <div className="compose-line">
-            <label className="compose-label" htmlFor="compose-to">{t("to")}</label>
-            <input id="compose-to" value={to} onChange={(event) => setTo(event.target.value)} placeholder={t("recipientPlaceholder")} autoComplete="email" data-dialog-initial-focus required />
-            <button className="copy-toggle" type="button" aria-expanded={showCopies} onClick={() => setShowCopies((value) => !value)}>{t("ccBcc")}</button>
-          </div>
-          {showCopies && (
-            <>
-              <div className="compose-line"><label className="compose-label" htmlFor="compose-cc">{t("cc")}</label><input id="compose-cc" value={cc} onChange={(event) => setCc(event.target.value)} placeholder={t("recipientPlaceholder")} autoComplete="email" /></div>
-              <div className="compose-line"><label className="compose-label" htmlFor="compose-bcc">{t("bcc")}</label><input id="compose-bcc" value={bcc} onChange={(event) => setBcc(event.target.value)} placeholder={t("recipientPlaceholder")} autoComplete="email" /></div>
-            </>
-          )}
-          <div className="compose-line subject-line">
-            <label className="compose-label" htmlFor="compose-subject">{t("subject")}</label>
-            <input id="compose-subject" value={subject} onChange={(event) => setSubject(event.target.value)} placeholder={t("subjectPlaceholder")} />
-          </div>
-          <textarea
-            className="compose-body"
-            data-font-family={preferences.composeFontFamily}
-            style={{ fontSize: preferences.composeFontSize, color: preferences.composeFontColor }}
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-            placeholder={t("messagePlaceholder")}
-            required
-          />
-          {error && <div className="inline-notice error">{error}</div>}
-          <footer className="compose-footer">
-            <button className="compose-attachment" type="button" disabled title={t("attachmentsComingSoon")} aria-label={t("attachmentsComingSoon")}><Paperclip size={18} /></button>
-            <div className="footer-actions">
-              <button className="secondary-button" type="button" onClick={requestClose} disabled={busy}>{t("cancel")}</button>
-              <button className="primary-button send-button" type="submit" disabled={busy || !accountId || !to || !body}>
-                {busy ? <span className="spinner spinner-small" /> : <Send size={16} />}
-                {busy ? t("sending") : t("send")}
-              </button>
-            </div>
-          </footer>
-        </form>
-      </section>
-    </div>
+    <Dialog
+      className="compose-dialog"
+      isOpen={isOpen}
+      onOpenChange={(open) => { if (!open) requestClose() }}
+      purpose="form"
+      width={760}
+      maxHeight="92dvh"
+      padding={0}
+      aria-label={t("compose")}
+    >
+      <form className="compose-form" onSubmit={submit}>
+        <Layout
+          className="compose-dialog-layout"
+          height="fill"
+          padding={0}
+          header={
+            <DialogHeader
+              title={t("compose")}
+              startContent={<span className="compose-dialog-icon"><AtSign aria-hidden="true" /></span>}
+              onOpenChange={busy ? undefined : (open) => { if (!open) requestClose() }}
+              hasDivider
+            />
+          }
+          content={
+            <LayoutContent className="compose-dialog-content" padding={0} isScrollable>
+              <div className="compose-fields">
+                <Selector
+                  label={t("from")}
+                  value={accountId}
+                  onChange={setAccountId}
+                  options={accounts.map((account) => ({ value: account.id, label: `${account.displayName} · ${account.email}` }))}
+                  width="100%"
+                />
+
+                <div className="compose-recipient-row">
+                  <label htmlFor="compose-to">{t("to")}</label>
+                  <input
+                    id="compose-to"
+                    className="compose-native-input"
+                    value={to}
+                    onChange={(event) => setTo(event.target.value)}
+                    placeholder={t("recipientPlaceholder")}
+                    autoComplete="email"
+                    data-autofocus
+                    required
+                  />
+                  <Button label={t("ccBcc")} variant="ghost" size="sm" onClick={() => setShowCopies((value) => !value)} aria-expanded={showCopies} />
+                </div>
+                {showCopies && (
+                  <div className="compose-copy-fields">
+                    <label><span>{t("cc")}</span><input className="compose-native-input" value={cc} onChange={(event) => setCc(event.target.value)} placeholder={t("recipientPlaceholder")} autoComplete="email" /></label>
+                    <label><span>{t("bcc")}</span><input className="compose-native-input" value={bcc} onChange={(event) => setBcc(event.target.value)} placeholder={t("recipientPlaceholder")} autoComplete="email" /></label>
+                  </div>
+                )}
+
+                <TextInput label={t("subject")} value={subject} onChange={setSubject} placeholder={t("subjectPlaceholder")} width="100%" />
+                <TextArea
+                  className={`compose-body-field font-${preferences.composeFontFamily}`}
+                  style={editorStyle}
+                  label={`${t("message")} · ${t("required")}`}
+                  value={body}
+                  onChange={setBody}
+                  placeholder={t("messagePlaceholder")}
+                  rows={14}
+                  width="100%"
+                />
+                {error && <Banner status="error" title={error} container="section" />}
+              </div>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter className="compose-dialog-footer" padding={3} hasDivider>
+              <IconButton label={t("attachmentsComingSoon")} icon={<Paperclip aria-hidden="true" />} variant="ghost" isDisabled tooltip={t("attachmentsComingSoon")} />
+              <span className="compose-dialog-actions">
+                <Button label={t("cancel")} variant="secondary" isDisabled={busy} onClick={requestClose} />
+                <Button
+                  label={busy ? t("sending") : t("send")}
+                  icon={<Send aria-hidden="true" />}
+                  variant="primary"
+                  type="submit"
+                  isLoading={busy}
+                  isDisabled={busy || !accountId || !to || !body}
+                />
+              </span>
+            </LayoutFooter>
+          }
+        />
+      </form>
+    </Dialog>
   )
 }
 

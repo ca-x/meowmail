@@ -1,4 +1,14 @@
 ;(() => {
+  const availableThemes = ["neutral", "stone", "butter", "matcha", "chocolate", "gothic", "y2k"]
+  let astryxTheme = "neutral"
+  try {
+    const storedTheme = localStorage.getItem("meowmail-astryx-theme")
+    astryxTheme = availableThemes.includes(storedTheme) ? storedTheme : "neutral"
+  } catch {
+    astryxTheme = "neutral"
+  }
+  document.documentElement.dataset.astryxTheme = astryxTheme
+
   let preference = "system"
   try {
     preference = localStorage.getItem("meowmail-theme") || "system"

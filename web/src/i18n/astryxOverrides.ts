@@ -1,0 +1,30 @@
+import type { Overrides } from "@astryxdesign/core/i18n"
+
+export const astryxOverrides: Overrides = {
+  "zh-CN": {
+    "@astryx.alertDialog.cancel": "取消",
+    "@astryx.appShell.mobileNavigation": "移动端导航",
+    "@astryx.banner.dismiss": "关闭提示",
+    "@astryx.dialog.close": "关闭",
+    "@astryx.fileInput.clearLabel": "清除{label}",
+    "@astryx.lightbox.close": "关闭",
+    "@astryx.lightbox.mediaViewer": "媒体查看器",
+    "@astryx.lightbox.next": "下一项",
+    "@astryx.lightbox.previous": "上一项",
+    "@astryx.mobileNav.closeNavigation": "关闭导航",
+    "@astryx.mobileNav.navigation": "导航",
+    "@astryx.mobileNav.toggle.open": "打开导航",
+    "@astryx.selector.clearLabel": "清除{label}",
+    "@astryx.selector.placeholder": "请选择…",
+    "@astryx.selector.searchOptions": "搜索选项",
+    "@astryx.selector.searchPlaceholder": "搜索…",
+    "@astryx.toast.dismiss": "关闭通知",
+    "@astryx.toast.viewport": "通知",
+    "@astryx.treeList.toggleChildren": "展开或折叠子项",
+    "@astryx.typeahead.clearSelection": "清除选择",
+    "@astryx.typeahead.emptySearchResults": "没有匹配结果",
+    "@astryx.typeahead.loading": "正在加载",
+    "@astryx.typeahead.searchPlaceholder": "搜索…",
+    "@astryx.typeahead.searchResults": "搜索结果",
+  },
+}

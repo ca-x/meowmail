@@ -1,3 +1,4 @@
+import { Spinner } from "@astryxdesign/core/Spinner"
 import { useEffect, useState } from "react"
 
 import { LoginPage } from "../features/auth/LoginPage"
@@ -58,8 +59,7 @@ export function App() {
     return (
       <main className="boot-screen" aria-live="polite">
         <img src="/meowmail-logo.png" alt="" />
-        <span className="spinner" aria-hidden="true" />
-        <p>{t("loading")}</p>
+        <Spinner size="lg" label={t("loading")} />
       </main>
     )
   }

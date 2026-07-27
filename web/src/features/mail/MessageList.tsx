@@ -1,5 +1,12 @@
-import { useMemo, useState } from "react"
+import { Avatar } from "@astryxdesign/core/Avatar"
+import { Button } from "@astryxdesign/core/Button"
+import { EmptyState } from "@astryxdesign/core/EmptyState"
+import { IconButton } from "@astryxdesign/core/IconButton"
+import { Item } from "@astryxdesign/core/Item"
+import { List } from "@astryxdesign/core/List"
+import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { ChevronDown, ChevronRight, Inbox, Megaphone, MessagesSquare, Paperclip, Star } from "lucide-react"
+import { useMemo, useState } from "react"
 
 import { defaultMailPreferences } from "../../app/mailPreferences"
 import type { MailPreferences, MessageSummary } from "../../app/types"
@@ -22,68 +29,125 @@ export function MessageList({ messages, selectedId, loading, preferences = defau
       : messages,
     [messages, preferences.aggregatePromotions, promotional.length, promotionsExpanded],
   )
-  const groups = useMemo(() => groupMessages(visibleMessages, preferences.conversationMode), [visibleMessages, preferences.conversationMode])
-  if (loading) {
-    return <div className="message-skeletons" aria-label={t("loading")}>{Array.from({ length: 7 }, (_, index) => <div className="message-skeleton" key={index}><i /><span><b /><b /><b /></span></div>)}</div>
-  }
+  const groups = useMemo(
+    () => groupMessages(visibleMessages, preferences.conversationMode),
+    [preferences.conversationMode, visibleMessages],
+  )
+
+  if (loading) return <MessageListSkeleton label={t("loading")} />
   if (!messages.length) {
     return (
-      <div className="column-empty">
-        <span className="empty-icon"><Inbox size={24} /></span>
-        <h3>{t("noMail")}</h3>
-        <p>{t("noMailDescription")}</p>
+      <div className="message-list-empty">
+        <EmptyState
+          isCompact
+          icon={<Inbox aria-hidden="true" />}
+          title={t("noMail")}
+          description={t("noMailDescription")}
+        />
       </div>
     )
   }
+
   return (
-    <div className="message-list" role="list" aria-label={t("inbox")}>
+    <div className="message-list-scroll" data-testid="message-list-scroll">
       {preferences.aggregatePromotions && promotional.length > 1 && (
-        <button className={`promotion-group ${promotionsExpanded ? "expanded" : ""}`} type="button" onClick={() => setPromotionsExpanded((value) => !value)} aria-expanded={promotionsExpanded}>
-          <span className="promotion-icon"><Megaphone size={17} /></span>
-          <span><strong>{t("promotionalMail")}</strong><small>{t("promotionalMailCount", { count: promotional.length })}</small></span>
-          {promotionsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        </button>
-      )}
-      {groups.map(({ message, count }, index) => (
-        <article
-          key={message.id}
-          className={`message-row ${message.id === selectedId ? "selected" : ""} ${message.isRead ? "read" : "unread"}`}
-          role="listitem"
-          aria-current={message.id === selectedId || undefined}
-          tabIndex={message.id === selectedId || (!selectedId && index === 0) ? 0 : -1}
-          onClick={() => onSelect(message)}
-          onKeyDown={(event) => {
-            if (event.target !== event.currentTarget) return
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault()
-              onSelect(message)
+        <div className="promotion-group-row">
+          <Button
+            label={t("promotionalMail")}
+            icon={<Megaphone aria-hidden="true" />}
+            endContent={
+              <span className="promotion-group-end">
+                <span>{t("promotionalMailCount", { count: promotional.length })}</span>
+                {promotionsExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+              </span>
             }
-          }}
-        >
-          <span className="unread-marker" aria-hidden="true" />
-          <Avatar name={message.senderName || message.senderEmail} />
-          <div className="message-row-content">
-            <div className="message-row-top">
-              <strong>{message.senderName || message.senderEmail}</strong>
-              <time dateTime={new Date(message.receivedAt * 1000).toISOString()}>{relativeTime(message.receivedAt, locale)}</time>
-            </div>
-            <div className="message-subject-line">
-              <span>{message.subject || t("noSubject")}</span>
-              {count > 1 && <span className="conversation-count"><MessagesSquare size={12} />{count}</span>}
-              {message.attachmentCount > 0 && <Paperclip size={13} aria-label={t("attachments")} />}
-            </div>
-            {preferences.showSummary && <p>{message.preview}</p>}
-            {(preferences.showMessageSize || (preferences.showAttachmentPreview && message.attachmentCount > 0)) && <div className="message-row-meta">{preferences.showMessageSize && <span>{formatFileSize(message.rawSize, locale)}</span>}{preferences.showAttachmentPreview && message.attachmentCount > 0 && <span><Paperclip size={11} />{t("attachmentCount", { count: message.attachmentCount })}</span>}</div>}
-          </div>
-          <button
-            className={`row-star ${message.isStarred ? "active" : ""}`}
-            type="button"
-            onClick={(event) => { event.stopPropagation(); onToggleStar(message) }}
-            aria-label={message.isStarred ? t("unstar") : t("star")}
-          >
-            <Star size={16} fill={message.isStarred ? "currentColor" : "none"} />
-          </button>
-        </article>
+            variant="ghost"
+            width="100%"
+            onClick={() => setPromotionsExpanded((value) => !value)}
+            aria-expanded={promotionsExpanded}
+          />
+        </div>
+      )}
+
+      <List className="message-list" density={preferences.listDensity === "compact" ? "compact" : "balanced"} hasDividers>
+        {groups.map(({ message, count }, index) => {
+          const isSelected = message.id === selectedId
+          return (
+            <Item
+              key={message.id}
+              as="li"
+              role="listitem"
+              className={`message-item ${message.isRead ? "is-read" : "is-unread"}`}
+              aria-current={isSelected ? "true" : undefined}
+              tabIndex={isSelected || (!selectedId && index === 0) ? 0 : -1}
+              align="start"
+              density={preferences.listDensity === "compact" ? "compact" : "balanced"}
+              isHighlighted={isSelected}
+              onClick={() => onSelect(message)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault()
+                  onSelect(message)
+                }
+              }}
+              startContent={<Avatar name={message.senderName || message.senderEmail} size="md" />}
+              label={
+                <span className="message-item-heading">
+                  <strong>{message.senderName || message.senderEmail}</strong>
+                  <time dateTime={new Date(message.receivedAt * 1000).toISOString()}>{relativeTime(message.receivedAt, locale)}</time>
+                </span>
+              }
+              description={
+                <span className="message-item-copy">
+                  <span className="message-item-subject">
+                    <span>{message.subject || t("noSubject")}</span>
+                    {count > 1 && <span className="conversation-count"><MessagesSquare aria-hidden="true" />{count}</span>}
+                    {message.attachmentCount > 0 && <Paperclip aria-label={t("attachments")} />}
+                  </span>
+                  {preferences.showSummary && <span className="message-item-preview">{message.preview}</span>}
+                  {(preferences.showMessageSize || (preferences.showAttachmentPreview && message.attachmentCount > 0)) && (
+                    <span className="message-item-meta">
+                      {preferences.showMessageSize && <span>{formatFileSize(message.rawSize, locale)}</span>}
+                      {preferences.showAttachmentPreview && message.attachmentCount > 0 && <span><Paperclip aria-hidden="true" />{t("attachmentCount", { count: message.attachmentCount })}</span>}
+                    </span>
+                  )}
+                </span>
+              }
+              endContent={
+                <IconButton
+                  className={`message-item-star ${message.isStarred ? "is-starred" : ""}`}
+                  label={message.isStarred ? t("unstar") : t("star")}
+                  icon={<Star fill={message.isStarred ? "currentColor" : "none"} aria-hidden="true" />}
+                  variant="ghost"
+                  size="sm"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onToggleStar(message)
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                />
+              }
+            />
+          )
+        })}
+      </List>
+    </div>
+  )
+}
+
+function MessageListSkeleton({ label }: { label: string }) {
+  return (
+    <div className="message-list-skeleton" aria-label={label} aria-busy="true">
+      {Array.from({ length: 7 }, (_, index) => (
+        <div className="message-skeleton-row" key={index}>
+          <Skeleton width={36} height={36} radius="rounded" index={index} />
+          <span>
+            <Skeleton width="42%" height={12} index={index} />
+            <Skeleton width="78%" height={11} index={index + 1} />
+            <Skeleton width="62%" height={10} index={index + 2} />
+          </span>
+        </div>
       ))}
     </div>
   )
@@ -110,12 +174,6 @@ function formatFileSize(size: number, locale: string) {
     unit += 1
   }
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: unit ? 1 : 0 }).format(value)} ${units[unit]}`
-}
-
-function Avatar({ name }: { name: string }) {
-  const value = [...name.trim()][0]?.toUpperCase() || "M"
-  const hue = [...name].reduce((total, character) => total + character.codePointAt(0)!, 0) % 360
-  return <span className="sender-avatar" style={{ "--avatar-hue": hue } as React.CSSProperties}>{value}</span>
 }
 
 function relativeTime(timestamp: number, locale: string) {

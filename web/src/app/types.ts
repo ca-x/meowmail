@@ -36,12 +36,12 @@ export interface AccountInput {
   email: string
   username: string
   password?: string
-  imap: ServerConfig
-  smtp: ServerConfig
+  imap: Omit<ServerConfig, "port"> & { port: number | null }
+  smtp: Omit<ServerConfig, "port"> & { port: number | null }
   proxy: {
     kind: ProxyKind
     host?: string
-    port?: number
+    port?: number | null
     username?: string
     password?: string
   }

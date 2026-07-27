@@ -1,12 +1,20 @@
+import { useImperativeAlertDialog } from "@astryxdesign/core/AlertDialog"
+import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
+import { MailPlus, Server, Trash2 } from "lucide-react"
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { CheckCircle2, ChevronDown, MailPlus, Server, ShieldCheck, Trash2, X } from "lucide-react"
 
 import { api } from "../../app/api"
-import { useDialogBehavior } from "../../app/useDialogBehavior"
-import type { AccountInput, ConnectionSecurity, MailAccount, ProxyKind } from "../../app/types"
+import type { AccountInput, MailAccount } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
+import type { MessageKey } from "../../i18n/messages"
+import { AccountIdentityFields, AccountProxySettings, AccountServerSettings } from "./AccountFormFields"
 
 interface Props {
+  isOpen?: boolean
   account: MailAccount | null
   onClose: () => void
   onSaved: (account: MailAccount) => void
@@ -45,19 +53,29 @@ function fromAccount(account: MailAccount): AccountInput {
   }
 }
 
-export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
+export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDeleted }: Props) {
   const { t } = useI18n()
+  const deleteAlert = useImperativeAlertDialog()
   const [input, setInput] = useState<AccountInput>(() => account ? fromAccount(account) : emptyInput())
   const [busy, setBusy] = useState<"save" | "test" | "delete" | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLElement>(null)
+  const [message, setMessage] = useState<MessageKey | null>(null)
+  const deletePending = useRef(false)
 
-  useDialogBehavior(dialogRef, onClose)
-
-  useEffect(() => setInput(account ? fromAccount(account) : emptyInput()), [account])
+  useEffect(() => {
+    if (!isOpen) return
+    setInput(account ? fromAccount(account) : emptyInput())
+    setMessage(null)
+  }, [account, isOpen])
 
   function preset(kind: "gmail" | "outlook" | "custom") {
-    if (kind === "custom") return setInput((value) => ({ ...value, imap: { ...value.imap, host: "" }, smtp: { ...value.smtp, host: "" } }))
+    if (kind === "custom") {
+      setInput((value) => ({
+        ...value,
+        imap: { ...value.imap, host: "" },
+        smtp: { ...value.smtp, host: "" },
+      }))
+      return
+    }
     setInput((value) => ({
       ...value,
       displayName: value.displayName || (kind === "gmail" ? "Gmail" : "Outlook"),
@@ -81,7 +99,7 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
         : await api.createAccount(payload)
       onSaved(saved)
     } catch {
-      setMessage(t("genericError"))
+      setMessage("genericError")
     } finally {
       setBusy(null)
     }
@@ -93,198 +111,108 @@ export function AccountDialog({ account, onClose, onSaved, onDeleted }: Props) {
     try {
       if (account && !input.password && !input.proxy.password) await api.testSavedAccount(account.id)
       else await api.testAccount(normalize(input, false))
-      setMessage(t("connectionOk"))
+      setMessage("connectionOk")
     } catch {
-      setMessage(t("genericError"))
+      setMessage("genericError")
     } finally {
       setBusy(null)
     }
   }
 
-  async function removeAccount() {
-    if (!account || !confirm(t("deleteAccountConfirm", { account: account.displayName }))) return
-    setBusy("delete")
-    try {
-      await api.deleteAccount(account.id)
-      onDeleted()
-    } catch {
-      setMessage(t("genericError"))
-      setBusy(null)
-    }
+  function requestDelete() {
+    if (!account) return
+    deleteAlert.show({
+      title: t("deleteAccountConfirm", { account: account.displayName }),
+      description: account.email,
+      cancelLabel: t("cancel"),
+      actionLabel: t("delete"),
+      actionVariant: "destructive",
+      onAction: async () => {
+        if (deletePending.current) return
+        deletePending.current = true
+        deleteAlert.hide()
+        setBusy("delete")
+        try {
+          await api.deleteAccount(account.id)
+          onDeleted()
+        } catch {
+          setMessage("genericError")
+          setBusy(null)
+        } finally {
+          deletePending.current = false
+        }
+      },
+    })
   }
 
+  const isBusy = Boolean(busy)
+  const isComplete = isAccountInputComplete(input, Boolean(account))
+
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section ref={dialogRef} className="modal-card account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" tabIndex={-1}>
-        <header className="modal-header">
-          <div className="modal-title-group">
-            <span className="modal-icon"><MailPlus size={20} /></span>
-            <div><p>{t("accounts")}</p><h2 id="account-dialog-title">{account ? t("editAccount") : t("addAccount")}</h2></div>
-          </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label={t("close")}><X size={18} /></button>
-        </header>
-
-        <form onSubmit={submit} className="modal-form">
-          <div className="preset-row" aria-label={t("preset")}>
-            <button type="button" onClick={() => preset("gmail")}><span className="preset-dot gmail" />Gmail</button>
-            <button type="button" onClick={() => preset("outlook")}><span className="preset-dot outlook" />Outlook</button>
-            <button type="button" onClick={() => preset("custom")}><Server size={15} />{t("custom")}</button>
-          </div>
-
-          <div className="form-section">
-            <div className="form-grid two-columns">
-              <Field label={t("displayName")} placeholder={t("displayNamePlaceholder")} value={input.displayName} onChange={(displayName) => setInput({ ...input, displayName })} required initialFocus />
-              <Field
-                label={t("email")}
-                placeholder={t("emailPlaceholder")}
-                value={input.email}
-                onChange={(email) => setInput((current) => ({
-                  ...current,
-                  email,
-                  username: !current.username || current.username === current.email ? email : current.username,
-                }))}
-                type="email"
-                autoComplete="email"
-                required
+    <>
+      <Dialog
+        className="account-dialog"
+        isOpen={isOpen}
+        onOpenChange={(open) => { if (!open && !isBusy) onClose() }}
+        purpose="form"
+        width={820}
+        maxHeight="92dvh"
+        padding={0}
+        aria-label={account ? t("editAccount") : t("addAccount")}
+      >
+        <form className="account-dialog-form" onSubmit={submit}>
+          <Layout
+            className="account-dialog-layout"
+            height="fill"
+            padding={0}
+            header={
+              <DialogHeader
+                title={account ? t("editAccount") : t("addAccount")}
+                subtitle={t("accounts")}
+                startContent={<span className="account-dialog-icon"><MailPlus aria-hidden="true" /></span>}
+                onOpenChange={isBusy ? undefined : (open) => { if (!open) onClose() }}
+                hasDivider
               />
-              <Field label={t("username")} placeholder={t("usernamePlaceholder")} value={input.username} onChange={(username) => setInput({ ...input, username })} autoComplete="username" required />
-              <Field
-                label={t("password")}
-                hint={account ? t("passwordKeep") : undefined}
-                placeholder={account ? t("passwordKeep") : t("passwordPlaceholder")}
-                value={input.password || ""}
-                onChange={(password) => setInput({ ...input, password })}
-                type="password"
-                autoComplete="new-password"
-                required={!account}
-              />
-            </div>
-          </div>
+            }
+            content={
+              <LayoutContent className="account-dialog-content" padding={0} isScrollable>
+                <div className="account-dialog-sections">
+                  <section className="account-form-section account-preset-section" aria-label={t("preset")}>
+                    <div className="account-preset-row">
+                      <Button label="Gmail" variant="secondary" size="sm" onClick={() => preset("gmail")} />
+                      <Button label="Outlook" variant="secondary" size="sm" onClick={() => preset("outlook")} />
+                      <Button label={t("custom")} icon={<Server aria-hidden="true" />} variant="secondary" size="sm" onClick={() => preset("custom")} />
+                    </div>
+                  </section>
 
-          <div className="form-section server-section">
-            <ServerFields
-              title={t("imapServer")}
-              value={input.imap}
-              onChange={(imap) => setInput({ ...input, imap })}
-            />
-            <ServerFields
-              title={t("smtpServer")}
-              value={input.smtp}
-              onChange={(smtp) => setInput({ ...input, smtp })}
-            />
-          </div>
+                  <AccountIdentityFields input={input} isEditing={Boolean(account)} onChange={setInput} />
+                  <AccountServerSettings input={input} onChange={setInput} />
+                  <AccountProxySettings input={input} onChange={setInput} />
 
-          <div className="form-section">
-            <div className="section-heading"><ShieldCheck size={17} /><h3>{t("proxy")}</h3></div>
-            <div className="segmented-control proxy-kind">
-              {(["direct", "http", "socks5"] as ProxyKind[]).map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  className={input.proxy.kind === kind ? "active" : ""}
-                  aria-pressed={input.proxy.kind === kind}
-                  onClick={() => setInput({ ...input, proxy: { ...input.proxy, kind } })}
-                >
-                  {t(kind)}
-                </button>
-              ))}
-            </div>
-            {input.proxy.kind !== "direct" && (
-              <div className="form-grid two-columns proxy-fields">
-                <Field label={t("host")} placeholder={t("proxyHostPlaceholder")} value={input.proxy.host || ""} onChange={(host) => setInput({ ...input, proxy: { ...input.proxy, host } })} required />
-                <Field label={t("port")} placeholder={t("proxyPortPlaceholder")} value={String(input.proxy.port || "")} onChange={(port) => setInput({ ...input, proxy: { ...input.proxy, port: Number(port) || undefined } })} type="number" required />
-                <Field label={t("proxyUsername")} placeholder={t("proxyUsernamePlaceholder")} value={input.proxy.username || ""} onChange={(username) => setInput({ ...input, proxy: { ...input.proxy, username } })} autoComplete="off" />
-                <Field label={t("proxyPassword")} placeholder={t("proxyPasswordPlaceholder")} value={input.proxy.password || ""} onChange={(password) => setInput({ ...input, proxy: { ...input.proxy, password } })} type="password" autoComplete="new-password" />
-              </div>
-            )}
-          </div>
+                  <section className="account-form-section account-default-section">
+                    <CheckboxInput label={t("defaultAccount")} value={input.isDefault} onChange={(isDefault) => setInput({ ...input, isDefault })} />
+                  </section>
 
-          <label className="check-row">
-            <input type="checkbox" checked={input.isDefault} onChange={(event) => setInput({ ...input, isDefault: event.target.checked })} />
-            <span className="custom-check"><CheckCircle2 size={14} /></span>
-            <span>{t("defaultAccount")}</span>
-          </label>
-
-          {message && <div className="inline-notice" aria-live="polite">{message}</div>}
-
-          <footer className="modal-footer">
-            <div>
-              {account && (
-                <button className="danger-button" type="button" onClick={removeAccount} disabled={Boolean(busy)}>
-                  <Trash2 size={16} />{t("delete")}
-                </button>
-              )}
-            </div>
-            <div className="footer-actions">
-              <button className="secondary-button" type="button" onClick={testConnection} disabled={Boolean(busy)}>
-                {busy === "test" && <span className="spinner spinner-small" />}
-                {busy === "test" ? t("testing") : t("testConnection")}
-              </button>
-              <button className="primary-button" type="submit" disabled={Boolean(busy)}>
-                {busy === "save" && <span className="spinner spinner-small" />}
-                {busy === "save" ? t("saving") : t("save")}
-              </button>
-            </div>
-          </footer>
+                  {message && <Banner status={message === "connectionOk" ? "success" : "error"} title={t(message)} container="section" />}
+                </div>
+              </LayoutContent>
+            }
+            footer={
+              <LayoutFooter className="account-dialog-footer" padding={3} hasDivider>
+                <span>
+                  {account && <Button label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="destructive" isDisabled={isBusy} onClick={requestDelete} />}
+                </span>
+                <span className="account-dialog-actions">
+                  <Button label={busy === "test" ? t("testing") : t("testConnection")} variant="secondary" isLoading={busy === "test"} isDisabled={isBusy || !isComplete} onClick={() => void testConnection()} />
+                  <Button label={busy === "save" ? t("saving") : t("save")} variant="primary" type="submit" isLoading={busy === "save"} isDisabled={isBusy || !isComplete} />
+                </span>
+              </LayoutFooter>
+            }
+          />
         </form>
-      </section>
-    </div>
-  )
-}
-
-function Field({ label, hint, placeholder, value, onChange, type = "text", autoComplete, required = false, initialFocus = false }: {
-  label: string
-  hint?: string
-  placeholder?: string
-  value: string
-  onChange: (value: string) => void
-  type?: string
-  autoComplete?: string
-  required?: boolean
-  initialFocus?: boolean
-}) {
-  return (
-    <label className="form-field">
-      <span>{label}</span>
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        inputMode={type === "number" ? "numeric" : undefined}
-        data-dialog-initial-focus={initialFocus || undefined}
-        onChange={(event) => onChange(event.target.value)}
-        required={required}
-      />
-      {hint && <small>{hint}</small>}
-    </label>
-  )
-}
-
-function ServerFields({ title, value, onChange }: {
-  title: string
-  value: AccountInput["imap"]
-  onChange: (value: AccountInput["imap"]) => void
-}) {
-  const { t } = useI18n()
-  return (
-    <div className="server-card">
-      <div className="section-heading"><Server size={17} /><h3>{title}</h3></div>
-      <Field label={t("host")} placeholder={t("hostPlaceholder")} value={value.host} onChange={(host) => onChange({ ...value, host })} required />
-      <div className="server-row">
-        <Field label={t("port")} placeholder={t("portPlaceholder")} value={String(value.port)} onChange={(port) => onChange({ ...value, port: Number(port) || 0 })} type="number" required />
-        <label className="form-field">
-          <span>{t("security")}</span>
-          <div className="select-shell">
-            <select value={value.security} onChange={(event) => onChange({ ...value, security: event.target.value as ConnectionSecurity })}>
-              <option value="tls">{t("tls")}</option>
-              <option value="starttls">{t("starttls")}</option>
-            </select>
-            <ChevronDown size={15} />
-          </div>
-        </label>
-      </div>
-    </div>
+      </Dialog>
+      {deleteAlert.element}
+    </>
   )
 }
 
@@ -295,4 +223,17 @@ function normalize(input: AccountInput, editing: boolean): AccountInput {
   if (!next.proxy.username) delete next.proxy.username
   if (next.proxy.kind === "direct") next.proxy = { kind: "direct" }
   return next
+}
+
+function isAccountInputComplete(input: AccountInput, editing: boolean) {
+  const requiredText = [input.displayName, input.email, input.username, input.imap.host, input.smtp.host]
+  if (requiredText.some((value) => !value.trim())) return false
+  if (!editing && !input.password?.trim()) return false
+  if (!isValidPort(input.imap.port) || !isValidPort(input.smtp.port)) return false
+  if (input.proxy.kind === "direct") return true
+  return Boolean(input.proxy.host?.trim() && isValidPort(input.proxy.port))
+}
+
+function isValidPort(port: number | null | undefined) {
+  return typeof port === "number" && Number.isInteger(port) && port >= 1 && port <= 65_535
 }

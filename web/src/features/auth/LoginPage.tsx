@@ -1,9 +1,14 @@
+import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
+import { Card } from "@astryxdesign/core/Card"
+import { IconButton } from "@astryxdesign/core/IconButton"
 import { useState, type FormEvent } from "react"
 import { Check, Eye, EyeOff, Globe2, KeyRound, LogIn, Moon, ShieldCheck, Sparkles, Sun, UserRound } from "lucide-react"
 
 import { ApiError, api } from "../../app/api"
 import type { AuthConfig, SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
+import { AppBrand } from "../../shared/ui/AppBrand"
 import { useTheme } from "../../theme/ThemeProvider"
 
 export function LoginPage({ config, onAuthenticated }: {
@@ -37,36 +42,26 @@ export function LoginPage({ config, onAuthenticated }: {
       <div className="login-orb login-orb-one" aria-hidden="true" />
       <div className="login-orb login-orb-two" aria-hidden="true" />
       <header className="login-utility">
-        <button
-          className="utility-button"
-          type="button"
+        <Button
+          label={locale === "zh-CN" ? t("switchToEnglish") : t("switchToChinese")}
+          variant="ghost"
+          icon={<Globe2 />}
           onClick={() => setLocale(locale === "zh-CN" ? "en" : "zh-CN")}
-          aria-label={locale === "zh-CN" ? t("switchToEnglish") : t("switchToChinese")}
         >
-          <Globe2 size={16} />
-          <span>{locale === "zh-CN" ? "EN" : "中文"}</span>
-        </button>
-        <button
-          className="utility-button icon-only"
-          type="button"
+          {locale === "zh-CN" ? "EN" : "中文"}
+        </Button>
+        <IconButton
+          label={resolved === "dark" ? t("switchToLight") : t("switchToDark")}
+          tooltip={resolved === "dark" ? t("switchToLight") : t("switchToDark")}
+          variant="ghost"
+          icon={resolved === "dark" ? <Sun /> : <Moon />}
           onClick={() => setMode(resolved === "dark" ? "light" : "dark")}
-          aria-label={resolved === "dark" ? t("switchToLight") : t("switchToDark")}
-        >
-          {resolved === "dark" ? <Sun size={17} /> : <Moon size={17} />}
-        </button>
+        />
       </header>
 
       <section className="login-layout">
         <div className="login-story">
-          <div className="brand-lockup">
-            <div className="login-logo-wrap">
-              <img src="/meowmail-logo.png" alt={t("brandName")} />
-            </div>
-            <div>
-              <p className="eyebrow">{t("loginEyebrow")}</p>
-              <h1>{t("brandName")}</h1>
-            </div>
-          </div>
+          <AppBrand variant="hero" eyebrow={t("loginEyebrow")} />
           <div className="login-copy">
             <h2>{t("loginTitle")}</h2>
             <p>{t("loginDescription")}</p>
@@ -79,66 +74,80 @@ export function LoginPage({ config, onAuthenticated }: {
         </div>
 
         <div className="login-card-wrap">
-          <form className="login-card" onSubmit={submit}>
-            <div className="login-card-icon" aria-hidden="true"><LogIn size={22} /></div>
-            <div className="login-card-heading">
-              <h2>{t("loginTitle")}</h2>
-              <p>{t("loginDescription")}</p>
-            </div>
-            {config.localEnabled && (
-              <>
-                <label className="field-label" htmlFor="username">{t("loginUsername")}</label>
-                <div className={`input-shell ${error ? "input-error" : ""}`}>
-                  <UserRound size={17} aria-hidden="true" />
-                  <input
-                    id="username"
-                    autoFocus
-                    autoComplete="username"
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                    placeholder={t("loginUsernamePlaceholder")}
-                    aria-invalid={Boolean(error)}
+          <Card width="100%" maxWidth={430} padding={8} className="login-card">
+            <form className="login-form" onSubmit={submit}>
+              <div className="login-card-icon" aria-hidden="true"><LogIn size={22} /></div>
+              <div className="login-card-heading">
+                <h2>{t("loginTitle")}</h2>
+                <p>{t("loginDescription")}</p>
+              </div>
+              {config.localEnabled && (
+                <>
+                  <label className="auth-field-label" htmlFor="username">{t("loginUsername")}</label>
+                  <div className={`auth-field-control ${error ? "is-invalid" : ""}`}>
+                    <UserRound size={17} aria-hidden="true" />
+                    <input
+                      id="username"
+                      autoFocus
+                      autoComplete="username"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      placeholder={t("loginUsernamePlaceholder")}
+                      aria-invalid={Boolean(error)}
+                    />
+                  </div>
+                  <label className="auth-field-label" htmlFor="password">{t("loginPassword")}</label>
+                  <div className={`auth-field-control ${error ? "is-invalid" : ""}`}>
+                    <KeyRound size={17} aria-hidden="true" />
+                    <input
+                      id="password"
+                      autoComplete="current-password"
+                      type={visible ? "text" : "password"}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder={t("loginPasswordPlaceholder")}
+                      aria-invalid={Boolean(error)}
+                    />
+                    <IconButton
+                      label={visible ? t("hidePassword") : t("showPassword")}
+                      tooltip={visible ? t("hidePassword") : t("showPassword")}
+                      size="md"
+                      variant="ghost"
+                      icon={visible ? <EyeOff /> : <Eye />}
+                      onClick={() => setVisible((value) => !value)}
+                    />
+                  </div>
+                  {error && (
+                    <Banner
+                      status="error"
+                      title={error === "limited" ? t("rateLimited") : t("loginError")}
+                    />
+                  )}
+                  <Button
+                    className="login-submit"
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    width="100%"
+                    label={busy ? t("signingIn") : t("signIn")}
+                    isLoading={busy}
+                    isDisabled={!username || !password}
                   />
-                </div>
-                <label className="field-label" htmlFor="password">{t("loginPassword")}</label>
-                <div className={`input-shell ${error ? "input-error" : ""}`}>
-                  <KeyRound size={17} aria-hidden="true" />
-                  <input
-                    id="password"
-                    autoComplete="current-password"
-                    type={visible ? "text" : "password"}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder={t("loginPasswordPlaceholder")}
-                    aria-invalid={Boolean(error)}
-                  />
-                  <button
-                    type="button"
-                    className="input-action"
-                    onClick={() => setVisible((value) => !value)}
-                    aria-label={visible ? t("hidePassword") : t("showPassword")}
-                  >
-                    {visible ? <EyeOff size={17} /> : <Eye size={17} />}
-                  </button>
-                </div>
-                <div className="field-message" aria-live="polite">
-                  {error === "invalid" && t("loginError")}
-                  {error === "limited" && t("rateLimited")}
-                </div>
-                <button className="primary-button login-submit" type="submit" disabled={!username || !password || busy}>
-                  {busy && <span className="spinner spinner-small" aria-hidden="true" />}
-                  <span>{busy ? t("signingIn") : t("signIn")}</span>
-                </button>
-              </>
-            )}
-            {config.localEnabled && config.oidcEnabled && <div className="login-divider"><span>{t("or")}</span></div>}
-            {config.oidcEnabled && (
-              <a className="secondary-button oidc-login" href="/api/v1/auth/oidc/start">
-                <ShieldCheck size={17} />
-                <span>{t("signInWithOidc")}</span>
-              </a>
-            )}
-          </form>
+                </>
+              )}
+              {config.localEnabled && config.oidcEnabled && <div className="login-divider"><span>{t("or")}</span></div>}
+              {config.oidcEnabled && (
+                <Button
+                  href="/api/v1/auth/oidc/start"
+                  variant="secondary"
+                  size="lg"
+                  width="100%"
+                  icon={<ShieldCheck />}
+                  label={t("signInWithOidc")}
+                />
+              )}
+            </form>
+          </Card>
         </div>
       </section>
     </main>

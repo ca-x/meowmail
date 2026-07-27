@@ -1,29 +1,33 @@
+import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout"
+import { Spinner } from "@astryxdesign/core/Spinner"
+import { Download, FileSearch } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { createPortal } from "react-dom"
-import { Download, FileSearch, X } from "lucide-react"
 
 import { api } from "../../app/api"
 import type { MailAttachment } from "../../app/types"
-import { useDialogBehavior } from "../../app/useDialogBehavior"
 import { useI18n } from "../../i18n/I18nProvider"
 import { useTheme } from "../../theme/ThemeProvider"
 
-export function AttachmentPreviewDialog({ messageId, attachment, onClose }: {
+export function AttachmentPreviewDialog({ isOpen = true, messageId, attachment, onClose }: {
+  isOpen?: boolean
   messageId: string
-  attachment: MailAttachment
+  attachment: MailAttachment | null
   onClose: () => void
 }) {
   const { locale, t } = useI18n()
   const { resolved } = useTheme()
-  const dialogRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
-  const url = api.attachmentUrl(messageId, attachment.id)
-
-  useDialogBehavior(dialogRef, onClose)
+  const filename = attachment?.filename || t("attachmentPreview")
+  const url = attachment ? api.attachmentUrl(messageId, attachment.id) : ""
+  const downloadUrl = attachment ? api.attachmentUrl(messageId, attachment.id, true) : ""
 
   useEffect(() => {
+    if (!isOpen || !attachment) return
     let active = true
     let destroy: (() => void) | undefined
     setLoading(true)
@@ -40,12 +44,7 @@ export function AttachmentPreviewDialog({ messageId, attachment, onClose }: {
             locale: locale === "zh-CN" ? "zh-CN" : "en-US",
             styleIsolation: "shadow",
             fit: "contain",
-            toolbar: {
-              download: false,
-              print: true,
-              exportHtml: false,
-              theme: false,
-            },
+            toolbar: { download: false, print: true, exportHtml: false, theme: false },
           },
           onStateChange(state) {
             if (!active) return
@@ -54,46 +53,56 @@ export function AttachmentPreviewDialog({ messageId, attachment, onClose }: {
           },
         }, {
           onError() {
-            if (active) {
-              setLoading(false)
-              setFailed(true)
-            }
+            if (active) { setLoading(false); setFailed(true) }
           },
         })
         destroy = () => controller.destroy()
       })
       .catch(() => {
-        if (active) {
-          setLoading(false)
-          setFailed(true)
-        }
+        if (active) { setLoading(false); setFailed(true) }
       })
-    return () => {
-      active = false
-      destroy?.()
-    }
-  }, [attachment.filename, attachment.id, attachment.size, locale, resolved, url])
+    return () => { active = false; destroy?.() }
+  }, [attachment, isOpen, locale, resolved, url])
 
-  return createPortal(
-    <div className="modal-backdrop attachment-preview-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <div className="modal-card attachment-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="attachment-preview-title" ref={dialogRef} tabIndex={-1}>
-        <header className="attachment-preview-header">
-          <div className="modal-title-group">
-            <span className="modal-icon"><FileSearch size={18} /></span>
-            <div><p>{t("attachmentPreview")}</p><h2 id="attachment-preview-title">{attachment.filename}</h2></div>
-          </div>
-          <div className="attachment-preview-actions">
-            <a className="secondary-button" href={api.attachmentUrl(messageId, attachment.id, true)} download={attachment.filename}><Download size={16} />{t("download")}</a>
-            <button className="icon-button" type="button" data-dialog-initial-focus onClick={onClose} aria-label={t("closePreview")}><X size={18} /></button>
-          </div>
-        </header>
-        <div className="attachment-viewer-shell">
-          <div className="attachment-viewer" ref={viewerRef} />
-          {loading && !failed && <div className="attachment-viewer-status"><span className="spinner" /><p>{t("loadingAttachmentPreview")}</p></div>}
-          {failed && <div className="attachment-viewer-status error"><FileSearch size={28} /><p>{t("attachmentPreviewError")}</p><a className="secondary-button" href={api.attachmentUrl(messageId, attachment.id, true)} download={attachment.filename}><Download size={16} />{t("download")}</a></div>}
-        </div>
-      </div>
-    </div>,
-    document.body,
+  return (
+    <Dialog
+      className="attachment-preview-dialog"
+      isOpen={isOpen}
+      onOpenChange={(open) => { if (!open) onClose() }}
+      purpose="info"
+      variant="fullscreen"
+      padding={0}
+      aria-label={filename}
+    >
+      <Layout
+        height="fill"
+        padding={0}
+        header={
+          <DialogHeader
+            title={filename}
+            subtitle={t("attachmentPreview")}
+            onOpenChange={(open) => { if (!open) onClose() }}
+            hasDivider
+            endContent={<Button label={t("download")} icon={<Download aria-hidden="true" />} variant="secondary" size="sm" href={downloadUrl} />}
+          />
+        }
+        content={
+          <LayoutContent className="attachment-viewer-shell" padding={0} isScrollable={false}>
+            <div className="attachment-viewer" ref={viewerRef} />
+            {loading && !failed && <div className="attachment-viewer-status"><Spinner size="xl" label={t("loadingAttachmentPreview")} /></div>}
+            {failed && (
+              <div className="attachment-viewer-status error">
+                <Banner
+                  status="error"
+                  title={t("attachmentPreviewError")}
+                  icon={<FileSearch aria-hidden="true" />}
+                  endContent={<Button label={t("download")} icon={<Download aria-hidden="true" />} variant="secondary" href={downloadUrl} />}
+                />
+              </div>
+            )}
+          </LayoutContent>
+        }
+      />
+    </Dialog>
   )
 }

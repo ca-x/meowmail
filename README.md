@@ -16,7 +16,7 @@
 
 ![妙邮 PC 三栏工作区](docs/assets/screenshots/workspace.png)
 
-发信偏好、账户昵称与邮件签名：
+设置中心：
 
 ![妙邮 PC 设置界面](docs/assets/screenshots/settings.png)
 
@@ -26,7 +26,7 @@
   <tr>
     <th>登录</th>
     <th>收件箱</th>
-    <th>邮件签名</th>
+    <th>设置</th>
   </tr>
   <tr>
     <td><img src="docs/assets/screenshots/mobile-login.png" width="240" alt="妙邮移动端登录界面"></td>
@@ -52,7 +52,7 @@
 - 服务器删除邮件后可保留本地副本；支持按账户、发件人、主题、正文与邮件年龄自动清理
 - 每位用户可选择同步收取整个 INBOX，或仅收取最近 1–10000 封邮件；默认最近 50 封
 - 新邮件自定义命令通知和 HTTP POST Webhook，支持 `{account}`、`{sender}`、`{subject}` 等模板
-- 中文 / English，以及跟随系统、浅色、深色主题
+- 中文 / English；支持 Astryx Neutral、Stone、Butter、Matcha、Chocolate、Gothic、Y2K 七种视觉主题，并可独立选择跟随系统、浅色或深色模式
 - 桌面三栏、平板双栏和移动端列表/详情布局
 - 单文件二进制、Docker amd64/arm64 镜像与自动化发布
 

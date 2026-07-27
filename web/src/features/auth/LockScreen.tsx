@@ -1,3 +1,7 @@
+import { Avatar } from "@astryxdesign/core/Avatar"
+import { Banner } from "@astryxdesign/core/Banner"
+import { Button } from "@astryxdesign/core/Button"
+import { Card } from "@astryxdesign/core/Card"
 import { useState, type FormEvent } from "react"
 import { KeyRound, LockKeyhole, LogOut } from "lucide-react"
 
@@ -31,43 +35,60 @@ export function LockScreen({ session, onUnlocked, onLoggedOut }: {
 
   return (
     <main className="lock-page">
-      <form className="lock-card" onSubmit={unlock}>
-        <div className="profile-avatar large">
-          {session.user.hasAvatar
-            ? <img src={`/api/v1/users/me/avatar?v=${session.user.updatedAt}`} alt="" />
-            : session.user.nickname.slice(0, 1).toUpperCase()}
-        </div>
-        <div className="lock-heading">
-          <span><LockKeyhole size={17} />{t("appLocked")}</span>
-          <h1>{session.user.nickname}</h1>
-          <p>{t("unlockDescription")}</p>
-        </div>
-        <label className="field-label" htmlFor="unlock-pin">{t("pin")}</label>
-        <div className={`input-shell ${error ? "input-error" : ""}`}>
-          <KeyRound size={17} aria-hidden="true" />
-          <input
-            id="unlock-pin"
-            autoFocus
-            autoComplete="current-password"
-            type="password"
-            inputMode="numeric"
-            value={pin}
-            onChange={(event) => setPin(event.target.value)}
-            placeholder={t("unlockPinPlaceholder")}
+      <Card width="100%" maxWidth={390} padding={8} className="lock-card">
+        <form className="lock-form" onSubmit={unlock}>
+          <span className="lock-avatar">
+            <Avatar
+              size="lg"
+              name={session.user.nickname}
+              src={session.user.hasAvatar ? `/api/v1/users/me/avatar?v=${session.user.updatedAt}` : undefined}
+            />
+          </span>
+          <div className="lock-heading">
+            <span><LockKeyhole size={17} />{t("appLocked")}</span>
+            <h1>{session.user.nickname}</h1>
+            <p>{t("unlockDescription")}</p>
+          </div>
+          <label className="auth-field-label" htmlFor="unlock-pin">{t("pin")}</label>
+          <div className={`auth-field-control ${error ? "is-invalid" : ""}`}>
+            <KeyRound size={17} aria-hidden="true" />
+            <input
+              id="unlock-pin"
+              autoFocus
+              autoComplete="current-password"
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={(event) => setPin(event.target.value)}
+              placeholder={t("unlockPinPlaceholder")}
+              aria-invalid={Boolean(error)}
+            />
+          </div>
+          {error && (
+            <Banner
+              status="error"
+              title={error === "limited" ? t("rateLimited") : t("unlockError")}
+            />
+          )}
+          <Button
+            className="login-submit"
+            type="submit"
+            variant="primary"
+            size="lg"
+            width="100%"
+            label={busy ? t("unlocking") : t("unlock")}
+            isLoading={busy}
+            isDisabled={!pin}
           />
-        </div>
-        <div className="field-message" aria-live="polite">
-          {error === "invalid" && t("unlockError")}
-          {error === "limited" && t("rateLimited")}
-        </div>
-        <button className="primary-button login-submit" type="submit" disabled={!pin || busy}>
-          {busy && <span className="spinner spinner-small" />}
-          {busy ? t("unlocking") : t("unlock")}
-        </button>
-        <button className="quiet-button lock-logout" type="button" onClick={onLoggedOut}>
-          <LogOut size={15} />{t("logout")}
-        </button>
-      </form>
+          <Button
+            className="lock-logout"
+            variant="ghost"
+            icon={<LogOut />}
+            label={t("logout")}
+            onClick={onLoggedOut}
+          />
+        </form>
+      </Card>
     </main>
   )
 }

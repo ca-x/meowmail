@@ -4,12 +4,12 @@ import { afterEach, expect, test, vi } from "vitest"
 
 import { api } from "../../app/api"
 import { defaultMailPreferences } from "../../app/mailPreferences"
-import type { MailAccount, MessageDetail as MessageDetailType, MessageSummary } from "../../app/types"
-import { I18nProvider } from "../../i18n/I18nProvider"
-import { ThemeProvider } from "../../theme/ThemeProvider"
+import type { MailAccount, MessageDetail as MessageDetailType, MessageSummary, SessionResponse } from "../../app/types"
+import { Providers } from "../../app/Providers"
 import { ComposeDialog } from "./ComposeDialog"
 import { MessageDetail } from "./MessageDetail"
 import { MessageList } from "./MessageList"
+import { MailWorkspace } from "./MailWorkspace"
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -52,15 +52,68 @@ const account: MailAccount = {
   hasPassword: true,
 }
 
+const session: SessionResponse = {
+  authenticated: true,
+  locked: false,
+  csrfToken: "csrf-token",
+  version: "0.3.0",
+  user: {
+    id: "user-1",
+    username: "admin",
+    nickname: "Admin",
+    email: "admin@example.com",
+    role: "admin",
+    hasPassword: true,
+    hasPin: true,
+    hasAvatar: false,
+    updatedAt: 1_700_000_000,
+  },
+}
+
+const messageDetail: MessageDetailType = {
+  ...message,
+  isRead: true,
+  references: [],
+  recipients: [account.email],
+  ccRecipients: [],
+  bodyText: "The full project update.",
+  bodyHtml: null,
+  attachments: [],
+}
+
+function stubWorkspaceApi() {
+  vi.spyOn(api, "accounts").mockResolvedValue([account])
+  vi.spyOn(api, "mailPreferences").mockResolvedValue(defaultMailPreferences)
+  vi.spyOn(api, "messages").mockResolvedValue([message])
+  vi.spyOn(api, "message").mockResolvedValue(messageDetail)
+  vi.spyOn(api, "messageThread").mockResolvedValue([messageDetail])
+  vi.spyOn(api, "updateMessage").mockImplementation(async (_id, update) => ({ ...message, ...update }))
+  vi.spyOn(api, "syncAccount").mockResolvedValue({ inserted: 0, syncedAt: 1_700_000_000 })
+  vi.spyOn(api, "logout").mockResolvedValue(undefined)
+}
+
+function renderWorkspace() {
+  render(
+    <Providers>
+      <MailWorkspace
+        session={session}
+        onSessionChanged={vi.fn()}
+        onLocked={vi.fn()}
+        onLoggedOut={vi.fn()}
+      />
+    </Providers>,
+  )
+}
+
 test("keyboard activation of the star button does not select the message row", async () => {
   const user = userEvent.setup()
   const onSelect = vi.fn()
   const onToggleStar = vi.fn()
 
   render(
-    <I18nProvider>
+    <Providers>
       <MessageList messages={[message]} selectedId={null} loading={false} onSelect={onSelect} onToggleStar={onToggleStar} />
-    </I18nProvider>,
+    </Providers>,
   )
 
   const star = screen.getByRole("button", { name: /Star|星标/ })
@@ -80,9 +133,9 @@ test("a compose dialog cannot be dismissed while a send request is pending", asy
   const onSent = vi.fn()
 
   render(
-    <I18nProvider>
+    <Providers>
       <ComposeDialog accounts={[account]} activeAccountId={account.id} preferences={defaultMailPreferences} onClose={onClose} onSent={onSent} />
-    </I18nProvider>,
+    </Providers>,
   )
 
   await user.type(screen.getByLabelText(/To|收件人/), "alice@example.com")
@@ -119,22 +172,20 @@ test("attachment information is localized and opens the preview dialog", async (
   }
 
   render(
-    <ThemeProvider>
-      <I18nProvider>
-        <MessageDetail
-          message={detail}
-          thread={[detail]}
-          loading={false}
-          preferences={defaultMailPreferences}
-          onBack={vi.fn()}
-          onToggleStar={vi.fn()}
-          onToggleRead={vi.fn()}
-          onReply={vi.fn()}
-          onForward={vi.fn()}
-          onDelete={vi.fn()}
-        />
-      </I18nProvider>
-    </ThemeProvider>,
+    <Providers>
+      <MessageDetail
+        message={detail}
+        thread={[detail]}
+        loading={false}
+        preferences={defaultMailPreferences}
+        onBack={vi.fn()}
+        onToggleStar={vi.fn()}
+        onToggleRead={vi.fn()}
+        onReply={vi.fn()}
+        onForward={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    </Providers>,
   )
 
   expect(screen.getByRole("heading", { name: "附件" })).toBeInTheDocument()
@@ -148,4 +199,75 @@ test("attachment information is localized and opens the preview dialog", async (
   await user.click(screen.getByRole("button", { name: "预览" }))
   expect(await screen.findByRole("dialog", { name: "handbook.pdf" })).toBeInTheDocument()
   expect(screen.getByText("附件预览")).toBeInTheDocument()
+})
+
+test("the Astryx mail shell keeps search and message navigation immediate", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  renderWorkspace()
+
+  const search = await screen.findByRole("textbox", { name: /Search mail|搜索邮件/ })
+  await user.keyboard("{Control>}k{/Control}")
+  expect(search).toHaveFocus()
+
+  expect(await screen.findByTestId("message-list-scroll")).toBeInTheDocument()
+  await user.click(screen.getByText("Project update"))
+  await waitFor(() => expect(api.message).toHaveBeenCalledWith(message.id))
+  expect(await screen.findByText("The full project update.")).toBeInTheDocument()
+})
+
+test("tree navigation does not trigger global compose or message shortcuts", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  renderWorkspace()
+  await screen.findByText("Project update")
+
+  const inbox = screen.getByRole("treeitem", { name: /Inbox|收件箱/ })
+  inbox.focus()
+  await user.keyboard("{ArrowDown}c")
+
+  expect(api.message).not.toHaveBeenCalled()
+  expect(screen.queryByRole("dialog", { name: /Compose|写邮件/ })).not.toBeInTheDocument()
+})
+
+test("closing compose restores focus to its trigger", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  renderWorkspace()
+  const compose = await screen.findByRole("button", { name: /Compose|写邮件/ })
+
+  await user.click(compose)
+  expect(await screen.findByRole("dialog", { name: /Compose|写邮件/ })).toBeInTheDocument()
+  await user.keyboard("{Escape}")
+
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /Compose|写邮件/ })).not.toBeInTheDocument())
+  expect(compose).toHaveFocus()
+})
+
+test("folder filtering reaches the existing messages API contract", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  renderWorkspace()
+  await screen.findByText("Project update")
+  vi.mocked(api.messages).mockClear()
+
+  await user.click(screen.getByRole("radio", { name: /Unread|未读邮件/ }))
+  await waitFor(() => expect(api.messages).toHaveBeenCalled())
+  const params = vi.mocked(api.messages).mock.calls.at(-1)?.[0]
+  expect(params?.get("unread")).toBe("true")
+})
+
+test("sync exposes a loading state and refreshes the mailbox", async () => {
+  stubWorkspaceApi()
+  let finishSync: (value: { inserted: number; syncedAt: number }) => void = () => {}
+  vi.mocked(api.syncAccount).mockReturnValue(new Promise((resolve) => { finishSync = resolve }))
+  const user = userEvent.setup()
+  renderWorkspace()
+  const sync = await screen.findByRole("button", { name: /^Sync$|^同步$/ })
+
+  await user.click(sync)
+  expect(await screen.findByRole("button", { name: /Syncing|同步中/ })).toBeDisabled()
+  finishSync({ inserted: 2, syncedAt: 1_700_000_001 })
+  await waitFor(() => expect(api.accounts).toHaveBeenCalledTimes(2))
+  expect(await screen.findByRole("button", { name: /^Sync$|^同步$/ })).toBeEnabled()
 })

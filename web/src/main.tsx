@@ -1,21 +1,28 @@
+import "@astryxdesign/core/reset.css"
+import "@astryxdesign/core/astryx.css"
+import "@astryxdesign/theme-butter/theme.css"
+import "@astryxdesign/theme-chocolate/theme.css"
+import "@astryxdesign/theme-gothic/theme.css"
+import "@astryxdesign/theme-matcha/theme.css"
+import "@astryxdesign/theme-neutral/theme.css"
+import "@astryxdesign/theme-stone/theme.css"
+import "@astryxdesign/theme-y2k/theme.css"
+import "./theme/tokens.css"
+import "./styles/app.css"
+
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 
 import { App } from "./app/App"
-import { I18nProvider } from "./i18n/I18nProvider"
-import { ThemeProvider } from "./theme/ThemeProvider"
-import "./theme/tokens.css"
-import "./styles/app.css"
+import { Providers } from "./app/Providers"
 
 const root = document.getElementById("root")
 if (!root) throw new Error("Meowmail root element is missing")
 
 createRoot(root).render(
   <StrictMode>
-    <ThemeProvider>
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    </ThemeProvider>
+    <Providers>
+      <App />
+    </Providers>
   </StrictMode>,
 )

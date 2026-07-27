@@ -1,18 +1,17 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { expect, test, vi } from "vitest"
+import { afterEach, expect, test, vi } from "vitest"
 
-import { I18nProvider } from "../../i18n/I18nProvider"
-import { ThemeProvider } from "../../theme/ThemeProvider"
+import { Providers } from "../../app/Providers"
 import { LoginPage } from "./LoginPage"
+
+afterEach(() => vi.unstubAllGlobals())
 
 function renderLogin(onAuthenticated = vi.fn(), config = { localEnabled: true, oidcEnabled: false }) {
   render(
-    <ThemeProvider>
-      <I18nProvider>
-        <LoginPage config={config} onAuthenticated={onAuthenticated} />
-      </I18nProvider>
-    </ThemeProvider>,
+    <Providers>
+      <LoginPage config={config} onAuthenticated={onAuthenticated} />
+    </Providers>,
   )
   return onAuthenticated
 }
@@ -42,7 +41,24 @@ test("submits a local username and password", async () => {
   await user.type(screen.getByLabelText(/^Password$|^密码$/), "secret password")
   await user.click(screen.getByRole("button", { name: /^Sign in$|^登录$/ }))
   expect(authenticated).toHaveBeenCalledOnce()
-  vi.unstubAllGlobals()
+})
+
+test("keeps password-manager semantics and exposes invalid credentials as an alert", async () => {
+  const user = userEvent.setup()
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 401 })))
+
+  renderLogin()
+  const password = screen.getByLabelText(/^Password$|^密码$/)
+  expect(password).toHaveAttribute("type", "password")
+  expect(password).toHaveAttribute("autocomplete", "current-password")
+
+  await user.click(screen.getByRole("button", { name: /Show password|显示密码/ }))
+  expect(password).toHaveAttribute("type", "text")
+  await user.type(screen.getByLabelText(/Username|用户名/), "admin")
+  await user.type(password, "wrong password")
+  await user.click(screen.getByRole("button", { name: /^Sign in$|^登录$/ }))
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/incorrect|不正确/)
 })
 
 test("keeps the brand, placeholders, and document metadata in the selected language", async () => {

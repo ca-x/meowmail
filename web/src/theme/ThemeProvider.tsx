@@ -1,13 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { readStoredValue, writeStoredValue } from "../app/storage"
+import { isAstryxThemeName, type AstryxThemeName } from "./astryxThemes"
 
 export type ThemeMode = "system" | "light" | "dark"
 
 interface ThemeValue {
   mode: ThemeMode
   resolved: "light" | "dark"
+  themeName: AstryxThemeName
   setMode: (mode: ThemeMode) => void
+  setThemeName: (themeName: AstryxThemeName) => void
 }
 
 const ThemeContext = createContext<ThemeValue | null>(null)
@@ -15,6 +18,11 @@ const ThemeContext = createContext<ThemeValue | null>(null)
 function storedMode(): ThemeMode {
   const value = readStoredValue("meowmail-theme")
   return value === "light" || value === "dark" ? value : "system"
+}
+
+function storedThemeName(): AstryxThemeName {
+  const value = readStoredValue("meowmail-astryx-theme")
+  return isAstryxThemeName(value) ? value : "neutral"
 }
 
 function resolve(mode: ThemeMode) {
@@ -25,6 +33,7 @@ function resolve(mode: ThemeMode) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(storedMode)
+  const [themeName, setThemeNameState] = useState<AstryxThemeName>(storedThemeName)
   const [resolved, setResolved] = useState<"light" | "dark">(() => resolve(mode))
 
   useEffect(() => {
@@ -43,11 +52,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemeValue>(() => ({
     mode,
     resolved,
+    themeName,
     setMode(next) {
       writeStoredValue("meowmail-theme", next)
       setModeState(next)
     },
-  }), [mode, resolved])
+    setThemeName(next) {
+      writeStoredValue("meowmail-astryx-theme", next)
+      setThemeNameState(next)
+    },
+  }), [mode, resolved, themeName])
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }
 
