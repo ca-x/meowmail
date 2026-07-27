@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 COPY web/ ./
 RUN npm run build
 
-FROM rust:1.94.0-bookworm AS rust-builder
+FROM rust:1.97.1-bookworm AS rust-builder
 
 WORKDIR /src
 ENV RUSTUP_TOOLCHAIN=1.94.0
