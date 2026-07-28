@@ -10,15 +10,18 @@ use uuid::Uuid;
 use crate::{
     db::{
         Database,
-        entities::{calendar, calendar_account, calendar_event},
+        entities::{calendar, calendar_account, calendar_event, preference},
     },
     error::AppError,
     security::CredentialVault,
 };
 
 use super::model::{
-    Calendar, CalendarAccount, CalendarAccountInput, CalendarEvent, CalendarUpdate, ParsedEvent,
+    Calendar, CalendarAccount, CalendarAccountInput, CalendarEvent, CalendarPreferences,
+    CalendarUpdate, ParsedEvent,
 };
+
+const CALENDAR_PREFERENCES_KEY: &str = "calendar.preferences.v1";
 
 #[derive(Clone)]
 pub struct CalendarRepository {
@@ -33,6 +36,43 @@ pub struct CalendarAccountSecrets {
 impl CalendarRepository {
     pub fn new(db: Database, vault: CredentialVault) -> Self {
         Self { db, vault }
+    }
+
+    pub async fn preferences(&self, user_id: Uuid) -> Result<CalendarPreferences, AppError> {
+        let value = preference::Entity::find()
+            .filter(preference::Column::UserId.eq(user_id.to_string()))
+            .filter(preference::Column::Key.eq(CALENDAR_PREFERENCES_KEY))
+            .one(self.db.connection())
+            .await?
+            .map(|model| model.value);
+        let mut preferences: CalendarPreferences = value
+            .map(|value| serde_json::from_str(&value).map_err(AppError::internal))
+            .transpose()?
+            .unwrap_or_default();
+        preferences.normalize();
+        Ok(preferences)
+    }
+
+    pub async fn update_preferences(
+        &self,
+        user_id: Uuid,
+        mut preferences: CalendarPreferences,
+    ) -> Result<CalendarPreferences, AppError> {
+        preferences.normalize();
+        let value = serde_json::to_string(&preferences).map_err(AppError::internal)?;
+        preference::Entity::insert(preference::ActiveModel {
+            user_id: Set(user_id.to_string()),
+            key: Set(CALENDAR_PREFERENCES_KEY.into()),
+            value: Set(value),
+        })
+        .on_conflict(
+            OnConflict::columns([preference::Column::UserId, preference::Column::Key])
+                .update_column(preference::Column::Value)
+                .to_owned(),
+        )
+        .exec(self.db.connection())
+        .await?;
+        Ok(preferences)
     }
 
     pub async fn list_accounts(&self, user_id: Uuid) -> Result<Vec<CalendarAccount>, AppError> {

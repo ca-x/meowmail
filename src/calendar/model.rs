@@ -69,6 +69,180 @@ pub struct CalendarEvent {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub enum CalendarFeature {
+    LunarDate,
+    Weekday,
+    LeapYear,
+    SolarFestival,
+    SolarOtherFestival,
+    HolidayAdjustment,
+    Constellation,
+    JulianDay,
+    GanZhiYear,
+    GanZhiMonth,
+    GanZhiDay,
+    ZodiacYear,
+    ZodiacMonth,
+    ZodiacDay,
+    Season,
+    SolarTerm,
+    NearSolarTerms,
+    LunarFestival,
+    LunarOtherFestival,
+    MoonPhase,
+    PengZu,
+    DayYi,
+    DayJi,
+    AuspiciousGods,
+    InauspiciousSpirits,
+    JoyPosition,
+    YangNoblePosition,
+    YinNoblePosition,
+    FortunePosition,
+    WealthPosition,
+    YearTaiSui,
+    MonthTaiSui,
+    DayTaiSui,
+    DayFetalGod,
+    MonthFetalGod,
+    Chong,
+    Sha,
+    YearNaYin,
+    MonthNaYin,
+    DayNaYin,
+    Xiu,
+    TwelveOfficer,
+    DayGod,
+    YearNineStar,
+    MonthNineStar,
+    DayNineStar,
+    Xun,
+    XunKong,
+    ShuJiu,
+    SanFu,
+    LiuYao,
+    WuHou,
+    Hou,
+    DayLu,
+    BuddhistCalendar,
+    BuddhistFestivals,
+    BuddhistObservances,
+    BuddhistXiu,
+    TaoistCalendar,
+    TaoistFestivals,
+    TaoistObservances,
+}
+
+impl CalendarFeature {
+    pub const ALL: [Self; 61] = [
+        Self::LunarDate,
+        Self::Weekday,
+        Self::LeapYear,
+        Self::SolarFestival,
+        Self::SolarOtherFestival,
+        Self::HolidayAdjustment,
+        Self::Constellation,
+        Self::JulianDay,
+        Self::GanZhiYear,
+        Self::GanZhiMonth,
+        Self::GanZhiDay,
+        Self::ZodiacYear,
+        Self::ZodiacMonth,
+        Self::ZodiacDay,
+        Self::Season,
+        Self::SolarTerm,
+        Self::NearSolarTerms,
+        Self::LunarFestival,
+        Self::LunarOtherFestival,
+        Self::MoonPhase,
+        Self::PengZu,
+        Self::DayYi,
+        Self::DayJi,
+        Self::AuspiciousGods,
+        Self::InauspiciousSpirits,
+        Self::JoyPosition,
+        Self::YangNoblePosition,
+        Self::YinNoblePosition,
+        Self::FortunePosition,
+        Self::WealthPosition,
+        Self::YearTaiSui,
+        Self::MonthTaiSui,
+        Self::DayTaiSui,
+        Self::DayFetalGod,
+        Self::MonthFetalGod,
+        Self::Chong,
+        Self::Sha,
+        Self::YearNaYin,
+        Self::MonthNaYin,
+        Self::DayNaYin,
+        Self::Xiu,
+        Self::TwelveOfficer,
+        Self::DayGod,
+        Self::YearNineStar,
+        Self::MonthNineStar,
+        Self::DayNineStar,
+        Self::Xun,
+        Self::XunKong,
+        Self::ShuJiu,
+        Self::SanFu,
+        Self::LiuYao,
+        Self::WuHou,
+        Self::Hou,
+        Self::DayLu,
+        Self::BuddhistCalendar,
+        Self::BuddhistFestivals,
+        Self::BuddhistObservances,
+        Self::BuddhistXiu,
+        Self::TaoistCalendar,
+        Self::TaoistFestivals,
+        Self::TaoistObservances,
+    ];
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CalendarPreferences {
+    pub enabled_features: Vec<CalendarFeature>,
+}
+
+impl Default for CalendarPreferences {
+    fn default() -> Self {
+        Self {
+            enabled_features: vec![
+                CalendarFeature::LunarDate,
+                CalendarFeature::SolarFestival,
+                CalendarFeature::HolidayAdjustment,
+                CalendarFeature::SolarTerm,
+                CalendarFeature::LunarFestival,
+            ],
+        }
+    }
+}
+
+impl CalendarPreferences {
+    pub fn normalize(&mut self) {
+        self.enabled_features.sort_unstable();
+        self.enabled_features.dedup();
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarDayInfo {
+    pub date: String,
+    pub details: Vec<CalendarDayDetail>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarDayDetail {
+    pub feature: CalendarFeature,
+    pub values: Vec<String>,
+    pub short_value: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ParsedEvent {
     pub uid: String,

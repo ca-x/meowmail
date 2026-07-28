@@ -16,7 +16,7 @@ use crate::{
         AiApiType, AiProviderInput, AiProviderKind, AiRepository, AutoLabelRuleInput,
         AutoLabelSubscriptionInput, LabelInput,
     },
-    calendar::{CalendarAccountInput, CalendarRepository},
+    calendar::{CalendarAccountInput, CalendarPreferences, CalendarRepository},
     cleanup::{
         CleanupRepository, CleanupRuleInput, MailSettings, RuleAction, RuleCondition, RuleMatchMode,
     },
@@ -271,6 +271,8 @@ struct ArchiveAutoLabelRule {
 
 #[derive(Serialize, Deserialize)]
 struct ArchiveCalendar {
+    #[serde(default)]
+    preferences: CalendarPreferences,
     accounts: Vec<ArchiveCalendarAccount>,
 }
 
@@ -742,7 +744,9 @@ impl MigrationService {
             None
         };
         let calendar = if sections.calendar {
+            let repository = CalendarRepository::new(self.db.clone(), self.vault.clone());
             Some(ArchiveCalendar {
+                preferences: repository.preferences(user_id).await?,
                 accounts: calendar_account::Entity::find()
                     .filter(calendar_account::Column::UserId.eq(&model.id))
                     .order_by_asc(calendar_account::Column::CreatedAt)
@@ -1227,6 +1231,9 @@ impl MigrationService {
             && let Some(calendar) = archived.calendar
         {
             let repository = CalendarRepository::new(self.db.clone(), self.vault.clone());
+            repository
+                .update_preferences(user_id, calendar.preferences)
+                .await?;
             let existing = repository.list_accounts(user_id).await?;
             for account in calendar.accounts {
                 let input = CalendarAccountInput {

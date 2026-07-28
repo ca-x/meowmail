@@ -3,15 +3,16 @@ import { IconButton } from "@astryxdesign/core/IconButton"
 import { Kbd } from "@astryxdesign/core/Kbd"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav"
-import { Bell, Languages, Moon, Search, Sun } from "lucide-react"
+import { CalendarDays, Languages, Moon, Search, Sun } from "lucide-react"
 import type { RefObject } from "react"
 
 import type { SessionResponse } from "../../../app/types"
 import { useI18n } from "../../../i18n/I18nProvider"
 import { useTheme } from "../../../theme/ThemeProvider"
 
-export function MailTopBar({ session, search, searchRef, onSearchChange, onOpenSettings }: {
+export function MailTopBar({ session, activeView, search, searchRef, onSearchChange, onOpenSettings }: {
   session: SessionResponse
+  activeView: "mail" | "calendar"
   search: string
   searchRef: RefObject<HTMLInputElement | null>
   onSearchChange: (value: string) => void
@@ -31,7 +32,7 @@ export function MailTopBar({ session, search, searchRef, onSearchChange, onOpenS
           heading={t("brandName")}
         />
       }
-      centerContent={
+      centerContent={activeView === "mail" ? (
         <div className="mail-search-field">
           <TextInput
             ref={searchRef}
@@ -46,7 +47,7 @@ export function MailTopBar({ session, search, searchRef, onSearchChange, onOpenS
           />
           <Kbd keys="mod+k" />
         </div>
-      }
+      ) : <div className="mail-topbar-current-view"><CalendarDays aria-hidden="true" /><span>{t("calendarView")}</span></div>}
       endContent={
         <div className="mail-topbar-actions">
           <IconButton
@@ -62,13 +63,6 @@ export function MailTopBar({ session, search, searchRef, onSearchChange, onOpenS
             variant="ghost"
             size="sm"
             onClick={() => setMode(resolved === "dark" ? "light" : "dark")}
-          />
-          <IconButton
-            label={t("notifications")}
-            icon={<Bell aria-hidden="true" />}
-            variant="ghost"
-            size="sm"
-            onClick={onOpenSettings}
           />
           <IconButton
             className="profile-menu-button"

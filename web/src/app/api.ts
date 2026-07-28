@@ -14,7 +14,9 @@ import type {
   Calendar,
   CalendarAccount,
   CalendarAccountInput,
+  CalendarDayInfo,
   CalendarEvent,
+  CalendarPreferences,
   CalendarUpdate,
   CleanupRule,
   CleanupRuleInput,
@@ -255,6 +257,14 @@ export const api = {
   calendars: () => request<Calendar[]>("/api/v1/calendars"),
   updateCalendar: (id: string, input: CalendarUpdate) =>
     request<Calendar>(`/api/v1/calendars/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  calendarPreferences: () => request<CalendarPreferences>("/api/v1/calendar/preferences"),
+  updateCalendarPreferences: (preferences: CalendarPreferences) =>
+    request<CalendarPreferences>("/api/v1/calendar/preferences", {
+      method: "PUT",
+      body: JSON.stringify(preferences),
+    }),
+  calendarDayInfo: (params: URLSearchParams) =>
+    request<CalendarDayInfo[]>(`/api/v1/calendar/day-info?${params.toString()}`),
   calendarEvents: (params: URLSearchParams) =>
     request<CalendarEvent[]>(`/api/v1/calendar/events?${params.toString()}`),
   notificationSettings: () =>

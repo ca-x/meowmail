@@ -46,7 +46,9 @@ export function App() {
   useEffect(() => {
     const target = auth.status === "guest"
       ? "/login"
-      : (auth.status === "ready" || auth.status === "locked") && !pathname.startsWith("/mail")
+      : (auth.status === "ready" || auth.status === "locked")
+          && !pathname.startsWith("/mail")
+          && !pathname.startsWith("/calendar")
         ? "/mail/inbox"
         : null
     if (target && pathname !== target) {

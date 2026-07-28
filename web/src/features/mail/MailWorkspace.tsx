@@ -8,7 +8,9 @@ import type { SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import { AccountDialog } from "../accounts/AccountDialog"
 import { AccountManagerDialog } from "../accounts/AccountManagerDialog"
+import { CalendarWorkspace } from "../calendar/CalendarWorkspace"
 import { SettingsDialog } from "../settings/SettingsDialog"
+import type { SettingsTab } from "../settings/settingsTypes"
 import { ComposeDialog, type ComposeWorkspaceRef } from "./ComposeDialog"
 import { ContactsDialog } from "./ContactsDialog"
 import { MessageDetail as DetailPane } from "./MessageDetail"
@@ -30,6 +32,9 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
   const composeRef = useRef<ComposeWorkspaceRef | null>(null)
   const composeTriggerRef = useRef<HTMLElement | null>(null)
   const viewportWidth = useViewportWidth()
+  const [activeView, setActiveView] = useState<"mail" | "calendar">(() => window.location.pathname.startsWith("/calendar") ? "calendar" : "mail")
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>("general")
+  const [calendarRevision, setCalendarRevision] = useState(0)
   const isComposing = workspace.composeDraft !== undefined
   const navigationMax = viewportWidth < 1_400 ? 260 : 320
   const detailMax = Math.max(440, Math.min(920, viewportWidth - navigationMax - 300))
@@ -54,6 +59,12 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
     if (detailPanel.size > detailMax) detailPanel.resize(detailMax)
   }, [detailMax, detailPanel.resize, detailPanel.size])
 
+  useEffect(() => {
+    const handlePopState = () => setActiveView(window.location.pathname.startsWith("/calendar") ? "calendar" : "mail")
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
   const rememberComposeTrigger = () => {
     composeTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
   }
@@ -71,10 +82,19 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
     }
     action()
   }
-  const openSettings = () => {
+  const openSettings = (tab: SettingsTab = "general") => {
     void leaveCompose(() => {
+      setSettingsInitialTab(tab)
       workspace.setSidebarOpen(false)
       workspace.setSettingsOpen(true)
+    })
+  }
+  const chooseView = (view: "mail" | "calendar") => {
+    if (view === activeView) return
+    void leaveCompose(() => {
+      setActiveView(view)
+      workspace.setSidebarOpen(false)
+      window.history.pushState(null, "", view === "calendar" ? "/calendar" : "/mail/inbox")
     })
   }
   const openAccountDialog = (account: typeof workspace.accountDialog) => {
@@ -85,12 +105,14 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
   }
   const navigation = (
     <MailNavigation
+      activeView={activeView}
       accounts={workspace.accounts}
       activeAccount={workspace.activeAccount}
       activeAccountId={workspace.activeAccountId}
       filter={workspace.filter}
       unreadCount={workspace.messages.filter((message) => !message.isRead).length}
       draftCount={workspace.drafts.length}
+      onChooseView={chooseView}
       onChooseAccount={(id) => void leaveCompose(() => workspace.chooseAccount(id))}
       onChooseFilter={(filter) => void leaveCompose(() => workspace.chooseFilter(filter))}
       onCompose={() => {
@@ -107,7 +129,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
       }}
       onEditAccount={(account) => openAccountDialog(account)}
       onAddAccount={() => openAccountDialog(null)}
-      onOpenSettings={openSettings}
+      onOpenSettings={() => openSettings()}
       onLogout={() => void leaveCompose(() => void workspace.logout())}
     />
   )
@@ -121,10 +143,11 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
       topNav={
         <MailTopBar
           session={session}
+          activeView={activeView}
           search={workspace.search}
           searchRef={workspace.searchRef}
           onSearchChange={workspace.setSearch}
-          onOpenSettings={openSettings}
+          onOpenSettings={() => openSettings()}
         />
       }
       mobileNav={{
@@ -141,7 +164,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
       <div
         className="mail-workspace-stage"
         data-view={workspace.mobileView}
-        data-mode={isComposing ? "compose" : "mail"}
+        data-mode={activeView === "calendar" ? "calendar" : isComposing ? "compose" : "mail"}
         data-reading-mode={workspace.mailPreferences.readingMode}
         data-list-density={workspace.mailPreferences.listDensity}
       >
@@ -171,7 +194,11 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
             </>
           }
           content={
-            isComposing ? (
+            activeView === "calendar" ? (
+              <LayoutContent className="calendar-workspace-host" padding={0} isScrollable={false} label={t("calendarView")}>
+                <CalendarWorkspace revision={calendarRevision} onOpenSettings={() => openSettings("calendar")} />
+              </LayoutContent>
+            ) : isComposing ? (
               <LayoutContent className="compose-workspace-host" padding={0} isScrollable={false} label={t("compose")}>
                 <ComposeDialog
                   ref={composeRef}
@@ -237,7 +264,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
             )
           }
           end={
-            isComposing ? undefined : <>
+            activeView === "calendar" || isComposing ? undefined : <>
               <ResizeHandle
                 className="mail-detail-resize"
                 resizable={detailPanel.props}
@@ -285,12 +312,14 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
       />
       <SettingsDialog
         isOpen={workspace.settingsOpen}
+        initialTab={settingsInitialTab}
         session={session}
         accounts={workspace.accounts}
         mailPreferences={workspace.mailPreferences}
         onSessionChanged={onSessionChanged}
         onMailPreferencesChanged={workspace.setMailPreferences}
         onAccountsChanged={workspace.setAccounts}
+        onCalendarChanged={() => setCalendarRevision((value) => value + 1)}
         onLocked={onLocked}
         onLoggedOut={onLoggedOut}
         onClose={() => workspace.setSettingsOpen(false)}

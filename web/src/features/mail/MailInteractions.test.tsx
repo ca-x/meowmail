@@ -14,6 +14,7 @@ import { MailWorkspace } from "./MailWorkspace"
 afterEach(() => {
   vi.restoreAllMocks()
   Object.defineProperty(window.navigator, "language", { configurable: true, value: "en-US" })
+  window.history.replaceState(null, "", "/mail/inbox")
 })
 
 vi.mock("@file-viewer/web-full", () => ({
@@ -160,6 +161,10 @@ function stubWorkspaceApi() {
   vi.spyOn(api, "syncAccount").mockResolvedValue({ inserted: 0, syncedAt: 1_700_000_000 })
   vi.spyOn(api, "deleteMessage").mockResolvedValue(undefined)
   vi.spyOn(api, "logout").mockResolvedValue(undefined)
+  vi.spyOn(api, "calendarPreferences").mockResolvedValue({ enabledFeatures: ["lunarDate", "solarTerm"] })
+  vi.spyOn(api, "calendars").mockResolvedValue([])
+  vi.spyOn(api, "calendarDayInfo").mockResolvedValue([])
+  vi.spyOn(api, "calendarEvents").mockResolvedValue([])
 }
 
 function renderWorkspace() {
@@ -446,6 +451,17 @@ test("the Astryx mail shell keeps search and message navigation immediate", asyn
   await user.click(screen.getByText("Project update"))
   await waitFor(() => expect(api.message).toHaveBeenCalledWith(message.id))
   expect(await screen.findByText("The full project update.")).toBeInTheDocument()
+})
+
+test("calendar is a top-level workspace and the unused notification bell is absent", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  renderWorkspace()
+
+  await user.click(await screen.findByRole("radio", { name: /Calendar|日历/ }))
+  expect(await screen.findByRole("main", { name: /Calendar|日历/ })).toBeInTheDocument()
+  expect(window.location.pathname).toBe("/calendar")
+  expect(screen.queryByRole("button", { name: /^Notifications$|^通知$/ })).not.toBeInTheDocument()
 })
 
 test("tree navigation does not trigger global compose or message shortcuts", async () => {

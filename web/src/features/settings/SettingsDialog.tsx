@@ -27,14 +27,16 @@ const tabs: Array<{ value: SettingsTab; label: "settingsGeneral" | "settingsMail
   { value: "data", label: "settingsData", icon: Database },
 ]
 
-export function SettingsDialog({ isOpen = true, session, accounts, mailPreferences, onSessionChanged, onMailPreferencesChanged, onAccountsChanged, onLocked, onLoggedOut, onClose, onOpenAccounts }: {
+export function SettingsDialog({ isOpen = true, initialTab = "general", session, accounts, mailPreferences, onSessionChanged, onMailPreferencesChanged, onAccountsChanged, onCalendarChanged = () => undefined, onLocked, onLoggedOut, onClose, onOpenAccounts }: {
   isOpen?: boolean
+  initialTab?: SettingsTab
   session: SessionResponse
   accounts: MailAccount[]
   mailPreferences: MailPreferences
   onSessionChanged: (session: SessionResponse) => void
   onMailPreferencesChanged: (preferences: MailPreferences) => void
   onAccountsChanged: (accounts: MailAccount[]) => void
+  onCalendarChanged?: () => void
   onLocked: (session: SessionResponse) => void
   onLoggedOut: () => void
   onClose: () => void
@@ -45,6 +47,13 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
   const [activeTab, setActiveTab] = useState<SettingsTab>("general")
   const [visitedTabs, setVisitedTabs] = useState<Set<SettingsTab>>(() => new Set(["general"]))
   const visibleTabs = tabs.filter(({ value }) => value !== "ai" || session.user.aiEnabled)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const nextTab = initialTab === "ai" && !session.user.aiEnabled ? "security" : initialTab
+    setActiveTab(nextTab)
+    setVisitedTabs((current) => current.has(nextTab) ? current : new Set([...current, nextTab]))
+  }, [initialTab, isOpen, session.user.aiEnabled])
 
   useEffect(() => {
     if (session.user.aiEnabled || activeTab !== "ai") return
@@ -121,7 +130,7 @@ export function SettingsDialog({ isOpen = true, session, accounts, mailPreferenc
             {visitedTabs.has("general") && <SettingsPanel tab="general" activeTab={activeTab}><GeneralSettingsPanel session={session} accounts={accounts} onSessionChanged={onSessionChanged} onOpenAccounts={onOpenAccounts} onNotice={showNotice} /></SettingsPanel>}
             {visitedTabs.has("mail") && <SettingsPanel tab="mail" activeTab={activeTab}><MailSettingsPanel accounts={accounts} mailPreferences={mailPreferences} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={showNotice} /></SettingsPanel>}
             {session.user.aiEnabled && visitedTabs.has("ai") && <SettingsPanel tab="ai" activeTab={activeTab}><AiSettingsPanel accounts={accounts} onNotice={showNotice} /></SettingsPanel>}
-            {visitedTabs.has("calendar") && <SettingsPanel tab="calendar" activeTab={activeTab}><CalendarSettingsPanel onNotice={showNotice} /></SettingsPanel>}
+            {visitedTabs.has("calendar") && <SettingsPanel tab="calendar" activeTab={activeTab}><CalendarSettingsPanel onNotice={showNotice} onCalendarChanged={onCalendarChanged} /></SettingsPanel>}
             {visitedTabs.has("automation") && <SettingsPanel tab="automation" activeTab={activeTab}><AutomationSettingsPanel accounts={accounts} onNotice={showNotice} /></SettingsPanel>}
             {visitedTabs.has("security") && <SettingsPanel tab="security" activeTab={activeTab}><SecuritySettingsPanel isOpen={isOpen} session={session} onSessionChanged={onSessionChanged} onLocked={onLocked} onLoggedOut={onLoggedOut} onClose={onClose} onNotice={showNotice} /></SettingsPanel>}
             {visitedTabs.has("data") && <SettingsPanel tab="data" activeTab={activeTab}><DataSettingsPanel session={session} onSessionChanged={onSessionChanged} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={showNotice} /></SettingsPanel>}

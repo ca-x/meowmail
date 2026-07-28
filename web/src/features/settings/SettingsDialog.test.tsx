@@ -93,6 +93,39 @@ test("configured mail accounts show a management summary instead of the first-ac
   expect(onOpenAccounts).toHaveBeenCalledOnce()
 })
 
+test("calendar settings expose every supported display option and persist the selection", async () => {
+  const user = userEvent.setup()
+  mockSettingsLoad()
+  vi.spyOn(api, "calendarAccounts").mockResolvedValue([{
+    id: "calendar-account-1",
+    name: "Personal calendar",
+    baseUrl: "https://calendar.example.com/dav",
+    username: "admin",
+    enabled: true,
+    hasPassword: true,
+    createdAt: 1,
+    updatedAt: 1,
+  }])
+  vi.spyOn(api, "calendars").mockResolvedValue([])
+  vi.spyOn(api, "calendarPreferences").mockResolvedValue({ enabledFeatures: ["lunarDate"] })
+  const sync = vi.spyOn(api, "syncCalendarAccount").mockResolvedValue({ imported: 0 })
+  const update = vi.spyOn(api, "updateCalendarPreferences").mockImplementation(async (preferences) => preferences)
+
+  renderSettings()
+  await useEnglish(user)
+  await user.click(screen.getByRole("tab", { name: "Calendar" }))
+
+  const options = await screen.findByRole("region", { name: "Calendar display options" })
+  expect(within(options).getAllByRole("checkbox")).toHaveLength(61)
+  const julianDay = within(options).getByRole("checkbox", { name: "Julian day" })
+  await user.click(julianDay)
+  await user.click(screen.getByRole("button", { name: "Sync" }))
+  await waitFor(() => expect(sync).toHaveBeenCalledWith("calendar-account-1"))
+  expect(julianDay).toBeChecked()
+  await user.click(within(options).getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(update).toHaveBeenCalledWith({ enabledFeatures: ["lunarDate", "julianDay"] }))
+})
+
 test("profile settings submit the editable username and nickname together", async () => {
   const user = userEvent.setup()
   mockSettingsLoad()

@@ -1,6 +1,5 @@
 import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
-import { Calendar as CalendarPicker } from "@astryxdesign/core/Calendar"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { DialogHeader, useImperativeDialog } from "@astryxdesign/core/Dialog"
 import { IconButton } from "@astryxdesign/core/IconButton"
@@ -11,13 +10,13 @@ import { CalendarDays, CirclePlus, Download, Pencil, RefreshCw, Save, Trash2 } f
 import { useEffect, useMemo, useState } from "react"
 
 import { api } from "../../app/api"
-import type { Calendar, CalendarAccount, CalendarAccountInput, CalendarEvent, CalendarUpdate } from "../../app/types"
+import type { Calendar, CalendarAccount, CalendarAccountInput, CalendarFeature, CalendarPreferences, CalendarUpdate } from "../../app/types"
+import { allCalendarFeatures, calendarFeatureGroups, defaultCalendarFeatures } from "../calendar/calendarFeatures"
 import { useI18n } from "../../i18n/I18nProvider"
 import type { MessageKey } from "../../i18n/messages"
 import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
 import { SettingsPanelHeading } from "./SettingsPanelHeading"
 import type { SettingsNotice } from "./settingsTypes"
-import type { ISODateString } from "@astryxdesign/core/Calendar"
 
 type AccountDraft = CalendarAccountInput & { id?: string }
 
@@ -29,8 +28,9 @@ const defaultAccount: CalendarAccountInput = {
   enabled: true,
 }
 
-export function CalendarSettingsPanel({ onNotice }: {
+export function CalendarSettingsPanel({ onNotice, onCalendarChanged }: {
   onNotice: (notice: SettingsNotice) => void
+  onCalendarChanged: () => void
 }) {
   const { t } = useI18n()
   const accountDialog = useImperativeDialog({ purpose: "form", width: 660, padding: 0 })
@@ -38,43 +38,66 @@ export function CalendarSettingsPanel({ onNotice }: {
   const confirmDialog = useImperativeConfirmDialog()
   const [accounts, setAccounts] = useState<CalendarAccount[]>([])
   const [calendars, setCalendars] = useState<Calendar[]>([])
-  const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [preferences, setPreferences] = useState<CalendarPreferences>({ enabledFeatures: defaultCalendarFeatures })
+  const [preferenceDraft, setPreferenceDraft] = useState<CalendarPreferences>({ enabledFeatures: defaultCalendarFeatures })
   const [busy, setBusy] = useState<string | null>(null)
-  const [focusDate, setFocusDate] = useState(toISODate(new Date()))
-  const [selectedDate, setSelectedDate] = useState(toISODate(new Date()))
 
   useEffect(() => {
     void refreshAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
-    void refreshEvents(focusDate)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusDate])
-
-  const visibleEvents = useMemo(() => events
-    .filter((event) => isSameDay(event.startsAt, selectedDate))
-    .sort((left, right) => left.startsAt - right.startsAt), [events, selectedDate])
-  const monthLabel = useMemo(() => new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(new Date(`${focusDate}T00:00:00`)), [focusDate])
-  const selectedLabel = useMemo(() => new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date(`${selectedDate}T00:00:00`)), [selectedDate])
+  const preferencesChanged = useMemo(() => {
+    const saved = [...preferences.enabledFeatures].sort().join(",")
+    const draft = [...preferenceDraft.enabledFeatures].sort().join(",")
+    return saved !== draft
+  }, [preferenceDraft.enabledFeatures, preferences.enabledFeatures])
 
   async function refreshAll() {
     try {
-      const [nextAccounts, nextCalendars] = await Promise.all([api.calendarAccounts(), api.calendars()])
+      const [nextAccounts, nextCalendars, nextPreferences] = await Promise.all([
+        api.calendarAccounts(),
+        api.calendars(),
+        api.calendarPreferences(),
+      ])
       setAccounts(nextAccounts)
       setCalendars(nextCalendars)
+      setPreferences(nextPreferences)
+      setPreferenceDraft(nextPreferences)
     } catch {
       onNotice({ key: "genericError", error: true })
     }
   }
 
-  async function refreshEvents(date = focusDate) {
-    const { start, end } = monthBounds(date)
+  async function refreshConfiguration() {
+    const [nextAccounts, nextCalendars] = await Promise.all([
+      api.calendarAccounts(),
+      api.calendars(),
+    ])
+    setAccounts(nextAccounts)
+    setCalendars(nextCalendars)
+  }
+
+  function toggleFeature(feature: CalendarFeature, enabled: boolean) {
+    setPreferenceDraft((current) => ({
+      enabledFeatures: enabled
+        ? [...new Set([...current.enabledFeatures, feature])]
+        : current.enabledFeatures.filter((value) => value !== feature),
+    }))
+  }
+
+  async function savePreferences() {
+    setBusy("preferences")
     try {
-      setEvents(await api.calendarEvents(new URLSearchParams({ start: String(start), end: String(end) })))
+      const saved = await api.updateCalendarPreferences(preferenceDraft)
+      setPreferences(saved)
+      setPreferenceDraft(saved)
+      onCalendarChanged()
+      onNotice({ key: "calendarPreferencesSaved" })
     } catch {
       onNotice({ key: "genericError", error: true })
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -131,8 +154,9 @@ export function CalendarSettingsPanel({ onNotice }: {
       }
       if (input.id) await api.updateCalendarAccount(input.id, payload)
       else await api.createCalendarAccount(payload)
-      await refreshAll()
+      await refreshConfiguration()
       accountDialog.hide()
+      onCalendarChanged()
       onNotice({ key: input.id ? "calendarAccountUpdated" : "calendarAccountCreated" })
     } catch {
       onNotice({ key: "genericError", error: true })
@@ -153,7 +177,8 @@ export function CalendarSettingsPanel({ onNotice }: {
     setBusy("account")
     try {
       await api.deleteCalendarAccount(account.id)
-      await refreshAll()
+      await refreshConfiguration()
+      onCalendarChanged()
       onNotice({ key: "calendarAccountDeleted" })
     } catch {
       onNotice({ key: "genericError", error: true })
@@ -166,8 +191,8 @@ export function CalendarSettingsPanel({ onNotice }: {
     setBusy(account.id)
     try {
       await api.syncCalendarAccount(account.id)
-      await refreshAll()
-      await refreshEvents()
+      await refreshConfiguration()
+      onCalendarChanged()
       onNotice({ key: "calendarSynced" })
     } catch {
       onNotice({ key: "genericError", error: true })
@@ -180,7 +205,8 @@ export function CalendarSettingsPanel({ onNotice }: {
     setBusy(`${account.id}-discover`)
     try {
       await api.discoverCalendarAccount(account.id)
-      await refreshAll()
+      await refreshConfiguration()
+      onCalendarChanged()
       onNotice({ key: "calendarDiscovered" })
     } catch {
       onNotice({ key: "genericError", error: true })
@@ -194,6 +220,7 @@ export function CalendarSettingsPanel({ onNotice }: {
     try {
       await api.updateCalendar(calendarId, input)
       setCalendars(await api.calendars())
+      onCalendarChanged()
       onNotice({ key: "calendarUpdated" })
     } catch {
       onNotice({ key: "genericError", error: true })
@@ -205,6 +232,42 @@ export function CalendarSettingsPanel({ onNotice }: {
   return (
     <>
       <div className="settings-panel-stack">
+        <SettingsPanelHeading icon={<CalendarDays />} title={t("calendarDisplayOptions")} description={t("calendarDisplayOptionsDescription")} />
+        <section className="settings-calendar-options" aria-label={t("calendarDisplayOptions")}>
+          <div className="settings-calendar-option-actions">
+            <Button label={t("selectAll")} variant="ghost" size="sm" onClick={() => setPreferenceDraft({ enabledFeatures: allCalendarFeatures })} />
+            <Button label={t("restoreDefaults")} variant="ghost" size="sm" onClick={() => setPreferenceDraft({ enabledFeatures: defaultCalendarFeatures })} />
+          </div>
+          <div className="settings-calendar-option-groups">
+            {calendarFeatureGroups.map((group) => (
+              <fieldset key={group.key} className="settings-calendar-option-group">
+                <legend>{t(group.label)}</legend>
+                <div className="settings-calendar-option-grid">
+                  {group.features.map((feature) => (
+                    <CheckboxInput
+                      key={feature.value}
+                      label={t(feature.label)}
+                      value={preferenceDraft.enabledFeatures.includes(feature.value)}
+                      onChange={(enabled) => toggleFeature(feature.value, enabled)}
+                    />
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+          </div>
+          <div className="settings-calendar-option-footer">
+            <Button
+              label={busy === "preferences" ? t("saving") : t("save")}
+              icon={<Save aria-hidden="true" />}
+              variant="primary"
+              size="sm"
+              isLoading={busy === "preferences"}
+              isDisabled={!preferencesChanged || busy !== null}
+              onClick={() => void savePreferences()}
+            />
+          </div>
+        </section>
+
         <SettingsPanelHeading icon={<CalendarDays />} title={t("calendarConfiguration")} description={t("calendarConfigurationDescription")} />
         <section className="settings-calendar-block" aria-label={t("calendarConfiguration")}>
           <div className="settings-row-header">
@@ -241,41 +304,6 @@ export function CalendarSettingsPanel({ onNotice }: {
             )) : <p className="settings-empty-copy">{t("noCalendars")}</p>}
           </List>
 
-          <div className="settings-subsection-divider" />
-
-          <div className="settings-calendar-layout">
-            <section className="settings-calendar-card">
-              <div className="settings-calendar-heading">
-                <div>
-                  <strong>{monthLabel}</strong>
-                  <small>{t("calendarMonthDescription")}</small>
-                </div>
-                <Badge variant="blue" label={t("calendarEvents", { count: events.length })} />
-              </div>
-              <CalendarPicker
-                focusDate={focusDate as ISODateString}
-                onFocusDateChange={(value) => setFocusDate(value)}
-                value={selectedDate as ISODateString}
-                onChange={(value) => setSelectedDate(value)}
-                hasWeekNumbers
-                weekStartsOn="mon"
-              />
-            </section>
-            <section className="settings-calendar-agenda">
-              <div className="settings-calendar-heading">
-                <div>
-                  <strong>{selectedLabel}</strong>
-                  <small>{t("calendarAgendaDescription")}</small>
-                </div>
-                <Button label={t("sync")} icon={<RefreshCw aria-hidden="true" />} variant="ghost" size="sm" onClick={() => void refreshEvents()} />
-              </div>
-              <List hasDividers density="compact">
-                {visibleEvents.length ? visibleEvents.map((event) => (
-                  <CalendarEventRow key={event.id} event={event} calendars={calendars} />
-                )) : <p className="settings-empty-copy">{t("noCalendarEvents")}</p>}
-              </List>
-            </section>
-          </div>
         </section>
       </div>
       {accountDialog.element}
@@ -309,26 +337,6 @@ function CalendarAccountRow({ account, busy, onEdit, onDelete, onDiscover, onSyn
         <Button label={t("sync")} icon={<RefreshCw aria-hidden="true" />} variant="ghost" size="sm" isDisabled={busy} onClick={onSync} />
         <IconButton label={t("edit")} icon={<Pencil aria-hidden="true" />} variant="ghost" size="sm" onClick={onEdit} />
         <IconButton label={t("delete")} icon={<Trash2 aria-hidden="true" />} variant="ghost" size="sm" className="danger-text" onClick={onDelete} />
-      </div>
-    </div>
-  )
-}
-
-function CalendarEventRow({ event, calendars }: {
-  event: CalendarEvent
-  calendars: Calendar[]
-}) {
-  const { locale, t } = useI18n()
-  const calendar = calendars.find((item) => item.id === event.calendarId)
-  return (
-    <div className="settings-inline-row">
-      <div className="settings-inline-summary">
-        <strong>{event.summary || t("calendarEventNoTitle")}</strong>
-        <small>{formatEventRange(event, locale)} · {calendar?.displayName || t("unknownAccount")}</small>
-      </div>
-      <div className="settings-inline-badges">
-        <Badge variant="blue" label={calendar?.displayName || t("unknownAccount")} />
-        {event.allDay && <Badge variant="neutral" label={t("allDay")} />}
       </div>
     </div>
   )
@@ -405,29 +413,4 @@ function CalendarEditor({ calendar, draft, busy, onCancel, onSubmit, t }: {
       </LayoutFooter>} />
     </form>
   )
-}
-
-function monthBounds(date: string) {
-  const base = new Date(`${date}T00:00:00`)
-  const start = new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0)
-  const end = new Date(base.getFullYear(), base.getMonth() + 1, 0, 23, 59, 59)
-  return { start: Math.floor(start.getTime() / 1000), end: Math.floor(end.getTime() / 1000) }
-}
-
-function isSameDay(timestamp: number, isoDate: string) {
-  const date = new Date(timestamp * 1000)
-  const local = toISODate(date)
-  return local === isoDate
-}
-
-function formatEventRange(event: CalendarEvent, locale: string) {
-  const date = new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(event.startsAt * 1000))
-  if (event.allDay) return date
-  const time = new Intl.DateTimeFormat(locale, { timeStyle: "short" }).format(new Date(event.startsAt * 1000))
-  return `${date} ${time}`
-}
-
-function toISODate(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }

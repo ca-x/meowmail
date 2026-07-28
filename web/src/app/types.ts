@@ -386,6 +386,84 @@ export interface CalendarEvent {
   updatedAt: number
 }
 
+export type CalendarFeature =
+  | "lunarDate"
+  | "weekday"
+  | "leapYear"
+  | "solarFestival"
+  | "solarOtherFestival"
+  | "holidayAdjustment"
+  | "constellation"
+  | "julianDay"
+  | "ganZhiYear"
+  | "ganZhiMonth"
+  | "ganZhiDay"
+  | "zodiacYear"
+  | "zodiacMonth"
+  | "zodiacDay"
+  | "season"
+  | "solarTerm"
+  | "nearSolarTerms"
+  | "lunarFestival"
+  | "lunarOtherFestival"
+  | "moonPhase"
+  | "pengZu"
+  | "dayYi"
+  | "dayJi"
+  | "auspiciousGods"
+  | "inauspiciousSpirits"
+  | "joyPosition"
+  | "yangNoblePosition"
+  | "yinNoblePosition"
+  | "fortunePosition"
+  | "wealthPosition"
+  | "yearTaiSui"
+  | "monthTaiSui"
+  | "dayTaiSui"
+  | "dayFetalGod"
+  | "monthFetalGod"
+  | "chong"
+  | "sha"
+  | "yearNaYin"
+  | "monthNaYin"
+  | "dayNaYin"
+  | "xiu"
+  | "twelveOfficer"
+  | "dayGod"
+  | "yearNineStar"
+  | "monthNineStar"
+  | "dayNineStar"
+  | "xun"
+  | "xunKong"
+  | "shuJiu"
+  | "sanFu"
+  | "liuYao"
+  | "wuHou"
+  | "hou"
+  | "dayLu"
+  | "buddhistCalendar"
+  | "buddhistFestivals"
+  | "buddhistObservances"
+  | "buddhistXiu"
+  | "taoistCalendar"
+  | "taoistFestivals"
+  | "taoistObservances"
+
+export interface CalendarPreferences {
+  enabledFeatures: CalendarFeature[]
+}
+
+export interface CalendarDayDetail {
+  feature: CalendarFeature
+  values: string[]
+  shortValue?: string | null
+}
+
+export interface CalendarDayInfo {
+  date: string
+  details: CalendarDayDetail[]
+}
+
 export interface ConnectionTestResponse {
   imap: boolean
   smtp: boolean

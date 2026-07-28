@@ -2,21 +2,24 @@ import { Avatar } from "@astryxdesign/core/Avatar"
 import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { IconButton } from "@astryxdesign/core/IconButton"
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl"
 import { TreeList, type TreeListItemData } from "@astryxdesign/core/TreeList"
-import { ChevronDown, FilePenLine, FileText, Inbox, LogOut, MailPlus, NotebookTabs, Paperclip, Plus, Send, Settings, Star, Trash2 } from "lucide-react"
+import { CalendarDays, ChevronDown, FilePenLine, FileText, Inbox, LogOut, Mail, MailPlus, NotebookTabs, Paperclip, Plus, Send, Settings, Star, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import type { MailAccount } from "../../../app/types"
 import { useI18n } from "../../../i18n/I18nProvider"
 import type { MailFilter } from "./types"
 
-export function MailNavigation({ accounts, activeAccount, activeAccountId, filter, unreadCount, draftCount, onChooseAccount, onChooseFilter, onCompose, onOpenContacts, onEditAccount, onAddAccount, onOpenSettings, onLogout }: {
+export function MailNavigation({ activeView, accounts, activeAccount, activeAccountId, filter, unreadCount, draftCount, onChooseView, onChooseAccount, onChooseFilter, onCompose, onOpenContacts, onEditAccount, onAddAccount, onOpenSettings, onLogout }: {
+  activeView: "mail" | "calendar"
   accounts: MailAccount[]
   activeAccount: MailAccount | null
   activeAccountId: string | null
   filter: MailFilter
   unreadCount: number
   draftCount: number
+  onChooseView: (view: "mail" | "calendar") => void
   onChooseAccount: (id: string | null) => void
   onChooseFilter: (filter: MailFilter) => void
   onCompose: () => void
@@ -60,7 +63,15 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
 
   return (
     <div className="mail-navigation">
-      <div className="mail-navigation-account">
+      <div className="mail-navigation-view-switch">
+        <SegmentedControl value={activeView} onChange={(value) => onChooseView(value as "mail" | "calendar")} label={t("appViews")} size="sm" layout="fill">
+          <SegmentedControlItem value="mail" label={t("mailView")} icon={<Mail aria-hidden="true" />} />
+          <SegmentedControlItem value="calendar" label={t("calendarView")} icon={<CalendarDays aria-hidden="true" />} />
+        </SegmentedControl>
+      </div>
+
+      {activeView === "mail" ? <>
+        <div className="mail-navigation-account">
         <Button
           label={activeAccount ? t("editAccount") : t("addAccount")}
           variant="ghost"
@@ -76,9 +87,9 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
             <Settings aria-hidden="true" />
           </span>
         </Button>
-      </div>
+        </div>
 
-      <div className="mail-navigation-compose">
+        <div className="mail-navigation-compose">
         <Button
           label={t("compose")}
           icon={<MailPlus aria-hidden="true" />}
@@ -94,29 +105,30 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
           width="100%"
           onClick={onOpenContacts}
         />
-      </div>
-
-      <nav className="mail-navigation-folders" aria-label={t("mailFolders")}>
-        <TreeList items={folderItems} density="compact" />
-      </nav>
-
-      <section className={`mail-navigation-accounts${accountsExpanded ? "" : " is-collapsed"}`} aria-labelledby="mail-account-heading">
-        <div className="mail-navigation-section-heading">
-          <button
-            type="button"
-            className="mail-navigation-section-toggle"
-            aria-expanded={accountsExpanded}
-            aria-controls="mail-account-list"
-            onClick={() => setAccountsExpanded((value) => !value)}
-          >
-            <ChevronDown aria-hidden="true" />
-            <span id="mail-account-heading">{t("accounts")}</span>
-            <span className="visually-hidden">{accountsExpanded ? t("collapseAccounts") : t("expandAccounts")}</span>
-          </button>
-          <IconButton label={t("addAccount")} icon={<Plus aria-hidden="true" />} variant="ghost" size="sm" onClick={onAddAccount} />
         </div>
-        {accountsExpanded && <div id="mail-account-list"><TreeList items={accountItems} density="compact" /></div>}
-      </section>
+
+        <nav className="mail-navigation-folders" aria-label={t("mailFolders")}>
+          <TreeList items={folderItems} density="compact" />
+        </nav>
+
+        <section className={`mail-navigation-accounts${accountsExpanded ? "" : " is-collapsed"}`} aria-labelledby="mail-account-heading">
+          <div className="mail-navigation-section-heading">
+            <button
+              type="button"
+              className="mail-navigation-section-toggle"
+              aria-expanded={accountsExpanded}
+              aria-controls="mail-account-list"
+              onClick={() => setAccountsExpanded((value) => !value)}
+            >
+              <ChevronDown aria-hidden="true" />
+              <span id="mail-account-heading">{t("accounts")}</span>
+              <span className="visually-hidden">{accountsExpanded ? t("collapseAccounts") : t("expandAccounts")}</span>
+            </button>
+            <IconButton label={t("addAccount")} icon={<Plus aria-hidden="true" />} variant="ghost" size="sm" onClick={onAddAccount} />
+          </div>
+          {accountsExpanded && <div id="mail-account-list"><TreeList items={accountItems} density="compact" /></div>}
+        </section>
+      </> : <div className="calendar-navigation-spacer" />}
 
       <footer className="mail-navigation-footer">
         <Button label={t("settings")} icon={<Settings aria-hidden="true" />} variant="ghost" size="sm" onClick={onOpenSettings} />
