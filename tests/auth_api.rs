@@ -494,3 +494,139 @@ async fn personal_pin_locks_and_unlocks_an_authenticated_session() {
         serde_json::from_slice(&unlocked.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["locked"], false);
 }
+
+#[tokio::test]
+async fn locked_session_can_logout_and_auto_lock_is_pin_guarded() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = Config::new("2468-meowmail".into(), directory.path().to_path_buf()).unwrap();
+    let app = build_router(AppState::initialize(config).await.unwrap());
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"username":"admin","password":"2468-meowmail"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let cookie = login
+        .headers()
+        .get(header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body: Value =
+        serde_json::from_slice(&login.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let csrf = body["csrfToken"].as_str().unwrap().to_owned();
+
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/users/me/auto-lock")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", &csrf)
+                .body(Body::from(r#"{"minutes":15}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let set_pin = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/auth/pin")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", &csrf)
+                .body(Body::from(r#"{"pin":"135790"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(set_pin.status(), StatusCode::OK);
+
+    let auto_lock = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/users/me/auto-lock")
+                .header(header::COOKIE, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", &csrf)
+                .body(Body::from(r#"{"minutes":15}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(auto_lock.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&auto_lock.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(body["autoLockMinutes"], 15);
+
+    let locked = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/lock")
+                .header(header::COOKIE, &cookie)
+                .header("x-csrf-token", &csrf)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(locked.status(), StatusCode::OK);
+
+    let logout = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header(header::COOKIE, &cookie)
+                .header("x-csrf-token", &csrf)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), StatusCode::OK);
+    assert!(
+        logout
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0")
+    );
+
+    let expired = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/session")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(expired.status(), StatusCode::UNAUTHORIZED);
+}

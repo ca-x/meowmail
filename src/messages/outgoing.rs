@@ -1,6 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mail_builder::{MessageBuilder, headers::raw::Raw};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
@@ -30,6 +31,8 @@ pub struct ComposeInput {
     pub text_body: String,
     #[serde(default)]
     pub html_body: Option<String>,
+    #[serde(default)]
+    pub editor_document: Option<Value>,
     #[serde(default)]
     pub attachments: Vec<ComposeAttachmentInput>,
     #[serde(default)]
@@ -106,6 +109,10 @@ impl ComposeInput {
                 .html_body
                 .as_ref()
                 .is_some_and(|value| value.len() > 2 * 1024 * 1024)
+            || self
+                .editor_document
+                .as_ref()
+                .is_some_and(|value| value.to_string().len() > 2 * 1024 * 1024)
         {
             return Err(AppError::Validation("message body is too large".into()));
         }

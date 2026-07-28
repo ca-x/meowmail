@@ -29,6 +29,8 @@ import type {
   ImportReport,
   Label,
   LabelInput,
+  LocalCalendarEvent,
+  LocalCalendarEventInput,
   MailAccount,
   MailPreferences,
   MailSettings,
@@ -126,6 +128,11 @@ export const api = {
     request<PublicUser>("/api/v1/users/me/ai", {
       method: "PUT",
       body: JSON.stringify({ enabled }),
+    }),
+  updateAutoLock: (minutes: number | null) =>
+    request<PublicUser>("/api/v1/users/me/auto-lock", {
+      method: "PUT",
+      body: JSON.stringify({ minutes }),
     }),
   updateAvatar: (file: File) =>
     request<PublicUser>("/api/v1/users/me/avatar", {
@@ -267,6 +274,14 @@ export const api = {
     request<CalendarDayInfo[]>(`/api/v1/calendar/day-info?${params.toString()}`),
   calendarEvents: (params: URLSearchParams) =>
     request<CalendarEvent[]>(`/api/v1/calendar/events?${params.toString()}`),
+  localCalendarEvents: (params: URLSearchParams) =>
+    request<LocalCalendarEvent[]>(`/api/v1/calendar/local-events?${params.toString()}`),
+  createLocalCalendarEvent: (input: LocalCalendarEventInput) =>
+    request<LocalCalendarEvent>("/api/v1/calendar/local-events", { method: "POST", body: JSON.stringify(input) }),
+  updateLocalCalendarEvent: (id: string, input: LocalCalendarEventInput) =>
+    request<LocalCalendarEvent>(`/api/v1/calendar/local-events/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteLocalCalendarEvent: (id: string) =>
+    request<void>(`/api/v1/calendar/local-events/${id}`, { method: "DELETE" }),
   notificationSettings: () =>
     request<NotificationSettings>("/api/v1/notifications/settings"),
   updateNotificationSettings: (settings: NotificationSettings) =>

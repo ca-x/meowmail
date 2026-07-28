@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     db::{
         Database,
-        entities::{calendar, calendar_account, calendar_event, preference},
+        entities::{calendar, calendar_account, calendar_event, local_calendar_event, preference},
     },
     error::AppError,
     security::CredentialVault,
@@ -18,7 +18,7 @@ use crate::{
 
 use super::model::{
     Calendar, CalendarAccount, CalendarAccountInput, CalendarEvent, CalendarPreferences,
-    CalendarUpdate, ParsedEvent,
+    CalendarUpdate, LocalCalendarEvent, LocalCalendarEventInput, ParsedEvent,
 };
 
 const CALENDAR_PREFERENCES_KEY: &str = "calendar.preferences.v1";
@@ -337,6 +337,81 @@ impl CalendarRepository {
             .collect()
     }
 
+    pub async fn list_local_events(
+        &self,
+        user_id: Uuid,
+        start: i64,
+        end: i64,
+    ) -> Result<Vec<LocalCalendarEvent>, AppError> {
+        local_calendar_event::Entity::find()
+            .filter(local_calendar_event::Column::UserId.eq(user_id.to_string()))
+            .filter(local_calendar_event::Column::StartsAt.lt(end))
+            .filter(local_calendar_event::Column::EndsAt.gt(start))
+            .order_by_asc(local_calendar_event::Column::StartsAt)
+            .limit(500)
+            .all(self.db.connection())
+            .await?
+            .into_iter()
+            .map(LocalCalendarEvent::try_from)
+            .collect()
+    }
+
+    pub async fn create_local_event(
+        &self,
+        user_id: Uuid,
+        mut input: LocalCalendarEventInput,
+    ) -> Result<LocalCalendarEvent, AppError> {
+        input.normalize()?;
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        LocalCalendarEvent::try_from(
+            local_calendar_event::ActiveModel {
+                id: Set(Uuid::new_v4().to_string()),
+                user_id: Set(user_id.to_string()),
+                summary: Set(input.summary),
+                description: Set(input.description),
+                location: Set(input.location),
+                starts_at: Set(input.starts_at),
+                ends_at: Set(input.ends_at),
+                all_day: Set(input.all_day),
+                created_at: Set(now),
+                updated_at: Set(now),
+            }
+            .insert(self.db.connection())
+            .await?,
+        )
+    }
+
+    pub async fn update_local_event(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+        mut input: LocalCalendarEventInput,
+    ) -> Result<LocalCalendarEvent, AppError> {
+        input.normalize()?;
+        let model = self.local_event_model(user_id, id).await?;
+        let mut active = model.into_active_model();
+        active.summary = Set(input.summary);
+        active.description = Set(input.description);
+        active.location = Set(input.location);
+        active.starts_at = Set(input.starts_at);
+        active.ends_at = Set(input.ends_at);
+        active.all_day = Set(input.all_day);
+        active.updated_at = Set(OffsetDateTime::now_utc().unix_timestamp());
+        LocalCalendarEvent::try_from(active.update(self.db.connection()).await?)
+    }
+
+    pub async fn delete_local_event(&self, user_id: Uuid, id: Uuid) -> Result<(), AppError> {
+        let result = local_calendar_event::Entity::delete_many()
+            .filter(local_calendar_event::Column::Id.eq(id.to_string()))
+            .filter(local_calendar_event::Column::UserId.eq(user_id.to_string()))
+            .exec(self.db.connection())
+            .await?;
+        if result.rows_affected == 0 {
+            return Err(AppError::NotFound);
+        }
+        Ok(())
+    }
+
     pub async fn mark_account_synced(
         &self,
         user_id: Uuid,
@@ -360,6 +435,19 @@ impl CalendarRepository {
         calendar_account::Entity::find()
             .filter(calendar_account::Column::Id.eq(id.to_string()))
             .filter(calendar_account::Column::UserId.eq(user_id.to_string()))
+            .one(self.db.connection())
+            .await?
+            .ok_or(AppError::NotFound)
+    }
+
+    async fn local_event_model(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> Result<local_calendar_event::Model, AppError> {
+        local_calendar_event::Entity::find()
+            .filter(local_calendar_event::Column::Id.eq(id.to_string()))
+            .filter(local_calendar_event::Column::UserId.eq(user_id.to_string()))
             .one(self.db.connection())
             .await?
             .ok_or(AppError::NotFound)
@@ -424,6 +512,24 @@ impl TryFrom<calendar_event::Model> for CalendarEvent {
             ends_at: model.ends_at,
             all_day: model.all_day,
             timezone: model.timezone,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
+impl TryFrom<local_calendar_event::Model> for LocalCalendarEvent {
+    type Error = AppError;
+
+    fn try_from(model: local_calendar_event::Model) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: Uuid::parse_str(&model.id).map_err(AppError::internal)?,
+            summary: model.summary,
+            description: model.description,
+            location: model.location,
+            starts_at: model.starts_at,
+            ends_at: model.ends_at,
+            all_day: model.all_day,
             created_at: model.created_at,
             updated_at: model.updated_at,
         })

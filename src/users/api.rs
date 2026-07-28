@@ -16,7 +16,10 @@ use crate::{
 use super::migration::{
     ExportRequest, ImportReport, ImportRequest, MigrationArchive, MigrationService,
 };
-use super::{PublicUser, UserAiAccessInput, UserPasswordInput, UserProfile, UserRepository};
+use super::{
+    PublicUser, UserAiAccessInput, UserAutoLockInput, UserPasswordInput, UserProfile,
+    UserRepository,
+};
 
 const MAX_AVATAR_SIZE: usize = 512 * 1024;
 
@@ -25,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/users/me", get(profile).patch(update_profile))
         .route("/users/me/password", axum::routing::put(update_password))
         .route("/users/me/ai", axum::routing::put(update_ai_access))
+        .route("/users/me/auto-lock", axum::routing::put(update_auto_lock))
         .route(
             "/users/me/avatar",
             get(avatar).put(update_avatar).delete(remove_avatar),
@@ -92,6 +96,18 @@ async fn update_ai_access(
     Ok(Json(
         UserRepository::new(state.db)
             .set_ai_enabled(mutation.0.user_id, input.enabled)
+            .await?,
+    ))
+}
+
+async fn update_auto_lock(
+    State(state): State<AppState>,
+    mutation: MutationSession,
+    Json(input): Json<UserAutoLockInput>,
+) -> Result<Json<PublicUser>, AppError> {
+    Ok(Json(
+        UserRepository::new(state.db)
+            .set_auto_lock_minutes(mutation.0.user_id, input.minutes)
             .await?,
     ))
 }

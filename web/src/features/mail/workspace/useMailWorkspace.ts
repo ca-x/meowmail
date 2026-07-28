@@ -353,6 +353,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       subject: draft.subject,
       body: draft.textBody,
       htmlBody: draft.htmlBody,
+      editorDocument: draft.editorDocument,
       attachments: draft.attachments,
       signatureId: draft.signatureId,
       applySignature: draft.applySignature,
@@ -390,9 +391,13 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   }, [draftBusyId, loadDrafts, notify])
 
   const logout = useCallback(async () => {
-    await api.logout().catch(() => undefined)
-    onLoggedOut()
-  }, [onLoggedOut])
+    try {
+      await api.logout()
+      onLoggedOut()
+    } catch {
+      notify("genericError", undefined, "error")
+    }
+  }, [notify, onLoggedOut])
 
   return {
     accounts, setAccounts, activeAccountId, activeAccount, messages, drafts, mailPreferences, setMailPreferences,

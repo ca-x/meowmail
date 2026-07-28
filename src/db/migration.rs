@@ -17,7 +17,115 @@ impl MigratorTrait for Migrator {
             Box::new(DraftAttachmentsMigration),
             Box::new(AiCalendarMigration),
             Box::new(AiAccessMigration),
+            Box::new(DraftEditorDocumentMigration),
+            Box::new(LocalCalendarEventsMigration),
+            Box::new(SessionAutoLockMigration),
         ]
+    }
+}
+
+struct SessionAutoLockMigration;
+
+impl MigrationName for SessionAutoLockMigration {
+    fn name(&self) -> &str {
+        "m20260728_000014_session_auto_lock"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for SessionAutoLockMigration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared("ALTER TABLE users ADD COLUMN auto_lock_minutes INTEGER;")
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared("ALTER TABLE users DROP COLUMN auto_lock_minutes;")
+            .await?;
+        Ok(())
+    }
+}
+
+struct DraftEditorDocumentMigration;
+
+impl MigrationName for DraftEditorDocumentMigration {
+    fn name(&self) -> &str {
+        "m20260728_000012_draft_editor_document"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for DraftEditorDocumentMigration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared("ALTER TABLE email_drafts ADD COLUMN editor_document TEXT;")
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared("ALTER TABLE email_drafts DROP COLUMN editor_document;")
+            .await?;
+        Ok(())
+    }
+}
+
+struct LocalCalendarEventsMigration;
+
+impl MigrationName for LocalCalendarEventsMigration {
+    fn name(&self) -> &str {
+        "m20260728_000013_local_calendar_events"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for LocalCalendarEventsMigration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                CREATE TABLE local_calendar_events (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    summary VARCHAR(240) NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    location VARCHAR(500) NOT NULL DEFAULT '',
+                    starts_at BIGINT NOT NULL,
+                    ends_at BIGINT NOT NULL,
+                    all_day BOOLEAN NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_local_calendar_event_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+                );
+                CREATE INDEX idx_local_calendar_events_user_range
+                    ON local_calendar_events(user_id, starts_at, ends_at);
+                "#,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                DROP INDEX IF EXISTS idx_local_calendar_events_user_range;
+                DROP TABLE IF EXISTS local_calendar_events;
+                "#,
+            )
+            .await?;
+        Ok(())
     }
 }
 

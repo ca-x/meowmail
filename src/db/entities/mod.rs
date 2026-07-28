@@ -8,6 +8,7 @@ pub mod cleanup_rule;
 pub mod contact;
 pub mod email_draft;
 pub mod label;
+pub mod local_calendar_event;
 pub mod mail_account;
 pub mod mail_setting;
 pub mod mcp_token;

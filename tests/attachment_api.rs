@@ -277,6 +277,7 @@ async fn create_local_user(state: &AppState, username: &str, password: &str) {
         avatar_mime: Set(None),
         avatar_data: Set(None),
         ai_enabled: Set(false),
+        auto_lock_minutes: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
         last_login_at: Set(None),

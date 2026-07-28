@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 
 import { LoginPage } from "../features/auth/LoginPage"
 import { LockScreen } from "../features/auth/LockScreen"
+import { publishAuthStateChange, startSessionAutoLock, subscribeAuthStateChanges } from "../features/auth/sessionActivity"
 import { MailWorkspace } from "../features/mail/MailWorkspace"
 import { useI18n } from "../i18n/I18nProvider"
 import type { AuthConfig, SessionResponse } from "./types"
@@ -19,11 +20,44 @@ export function App() {
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const { t } = useI18n()
 
+  async function loadAuthState() {
+    const config = await api.authConfig().catch(() => ({ localEnabled: true, oidcEnabled: false }))
+    try {
+      const session = await api.session()
+      setAuth(session.locked ? { status: "locked", session } : { status: "ready", session })
+    } catch {
+      setAuth({ status: "guest", config })
+    }
+  }
+
+  function showReady(session: SessionResponse) {
+    setAuth({ status: "ready", session })
+    publishAuthStateChange()
+  }
+
+  function showLocked(session: SessionResponse) {
+    setAuth({ status: "locked", session })
+    publishAuthStateChange()
+  }
+
+  async function showLoggedOut() {
+    const config = await api.authConfig().catch(() => ({ localEnabled: true, oidcEnabled: false }))
+    setAuth({ status: "guest", config })
+    publishAuthStateChange()
+  }
+
   useEffect(() => {
     const update = () => setPathname(window.location.pathname)
     window.addEventListener("popstate", update)
     return () => window.removeEventListener("popstate", update)
   }, [])
+
+  useEffect(() => subscribeAuthStateChanges(() => void loadAuthState()), [])
+
+  useEffect(() => {
+    if (auth.status !== "ready") return
+    return startSessionAutoLock(auth.session, showLocked)
+  }, [auth])
 
   useEffect(() => {
     let active = true
@@ -71,7 +105,7 @@ export function App() {
       <LoginPage
         config={auth.config}
         onAuthenticated={(session) => {
-          setAuth({ status: "ready", session })
+          showReady(session)
           window.history.replaceState(null, "", "/mail/inbox")
           setPathname("/mail/inbox")
         }}
@@ -83,11 +117,10 @@ export function App() {
     return (
       <LockScreen
         session={auth.session}
-        onUnlocked={(session) => setAuth({ status: "ready", session })}
+        onUnlocked={showReady}
         onLoggedOut={async () => {
-          await api.logout().catch(() => undefined)
-          const config = await api.authConfig().catch(() => ({ localEnabled: true, oidcEnabled: false }))
-          setAuth({ status: "guest", config })
+          await api.logout()
+          await showLoggedOut()
         }}
       />
     )
@@ -96,12 +129,9 @@ export function App() {
   return (
     <MailWorkspace
       session={auth.session}
-      onSessionChanged={(session) => setAuth({ status: "ready", session })}
-      onLocked={(session) => setAuth({ status: "locked", session })}
-      onLoggedOut={async () => {
-        const config = await api.authConfig().catch(() => ({ localEnabled: true, oidcEnabled: false }))
-        setAuth({ status: "guest", config })
-      }}
+      onSessionChanged={showReady}
+      onLocked={showLocked}
+      onLoggedOut={showLoggedOut}
     />
   )
 }

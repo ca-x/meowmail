@@ -45,3 +45,21 @@ JVBERi0xLjQK\r\n\
         Some(b"%PDF-1.4\n".as_slice())
     );
 }
+
+#[test]
+fn decodes_gb2312_body_used_by_chinese_mail_providers() {
+    let mut raw = b"From: sender@163.com\r\n\
+To: me@example.net\r\n\
+Subject: Chinese body\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: text/plain; charset=gb2312\r\n\
+Content-Transfer-Encoding: 8bit\r\n\
+\r\n"
+        .to_vec();
+    raw.extend_from_slice(&[0xD6, 0xD0, 0xCE, 0xC4, 0xB2, 0xE2, 0xCA, 0xD4]);
+    raw.extend_from_slice(b"\r\n");
+
+    let parsed = parse_message(&raw, 0).unwrap();
+
+    assert_eq!(parsed.body_text.trim(), "中文测试");
+}

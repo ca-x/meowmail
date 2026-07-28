@@ -69,6 +69,54 @@ pub struct CalendarEvent {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalCalendarEvent {
+    pub id: Uuid,
+    pub summary: String,
+    pub description: String,
+    pub location: String,
+    pub starts_at: i64,
+    pub ends_at: i64,
+    pub all_day: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalCalendarEventInput {
+    pub summary: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub location: String,
+    pub starts_at: i64,
+    pub ends_at: i64,
+    #[serde(default)]
+    pub all_day: bool,
+}
+
+impl LocalCalendarEventInput {
+    pub fn normalize(&mut self) -> Result<(), AppError> {
+        self.summary = self.summary.trim().to_owned();
+        self.description = self.description.trim().to_owned();
+        self.location = self.location.trim().to_owned();
+        if self.summary.is_empty()
+            || self.summary.len() > 240
+            || self.description.len() > 32 * 1024
+            || self.location.len() > 500
+            || self.ends_at <= self.starts_at
+            || self.ends_at.saturating_sub(self.starts_at) > 366 * 86_400
+        {
+            return Err(AppError::Validation(
+                "local calendar event is invalid".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum CalendarFeature {

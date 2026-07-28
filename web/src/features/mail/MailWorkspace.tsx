@@ -4,6 +4,7 @@ import { MobileNav } from "@astryxdesign/core/MobileNav"
 import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable"
 import { useEffect, useRef, useState } from "react"
 
+import { api } from "../../app/api"
 import type { SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import { AccountDialog } from "../accounts/AccountDialog"
@@ -103,6 +104,21 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
       workspace.setAccountDialog(account)
     })
   }
+  const lockSession = async () => {
+    try {
+      onLocked(await api.lock())
+    } catch {
+      workspace.notify("genericError", undefined, "error")
+    }
+  }
+  const requestSessionLock = () => {
+    if (!session.user.hasPin) {
+      workspace.notify("setPinBeforeLock")
+      openSettings("security")
+      return
+    }
+    void leaveCompose(() => void lockSession())
+  }
   const navigation = (
     <MailNavigation
       activeView={activeView}
@@ -148,6 +164,8 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
           searchRef={workspace.searchRef}
           onSearchChange={workspace.setSearch}
           onOpenSettings={() => openSettings()}
+          onLock={requestSessionLock}
+          onLogout={() => void leaveCompose(() => void workspace.logout())}
         />
       }
       mobileNav={{
@@ -196,7 +214,17 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
           content={
             activeView === "calendar" ? (
               <LayoutContent className="calendar-workspace-host" padding={0} isScrollable={false} label={t("calendarView")}>
-                <CalendarWorkspace revision={calendarRevision} onOpenSettings={() => openSettings("calendar")} />
+                <CalendarWorkspace
+                  revision={calendarRevision}
+                  drafts={workspace.drafts}
+                  onOpenDraft={(draft) => {
+                    rememberComposeTrigger()
+                    setActiveView("mail")
+                    window.history.pushState(null, "", "/mail/drafts")
+                    workspace.openDraft(draft)
+                  }}
+                  onOpenSettings={() => openSettings("calendar")}
+                />
               </LayoutContent>
             ) : isComposing ? (
               <LayoutContent className="compose-workspace-host" padding={0} isScrollable={false} label={t("compose")}>
@@ -320,7 +348,6 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
         onMailPreferencesChanged={workspace.setMailPreferences}
         onAccountsChanged={workspace.setAccounts}
         onCalendarChanged={() => setCalendarRevision((value) => value + 1)}
-        onLocked={onLocked}
         onLoggedOut={onLoggedOut}
         onClose={() => workspace.setSettingsOpen(false)}
         onOpenAccounts={() => {

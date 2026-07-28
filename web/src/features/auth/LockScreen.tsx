@@ -12,24 +12,36 @@ import { useI18n } from "../../i18n/I18nProvider"
 export function LockScreen({ session, onUnlocked, onLoggedOut }: {
   session: SessionResponse
   onUnlocked: (session: SessionResponse) => void
-  onLoggedOut: () => void
+  onLoggedOut: () => Promise<void>
 }) {
   const [pin, setPin] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<"invalid" | "limited" | null>(null)
+  const [busy, setBusy] = useState<"unlock" | "logout" | null>(null)
+  const [error, setError] = useState<"invalid" | "limited" | "logout" | null>(null)
   const { t } = useI18n()
 
   async function unlock(event: FormEvent) {
     event.preventDefault()
     if (!pin || busy) return
-    setBusy(true)
+    setBusy("unlock")
     setError(null)
     try {
       onUnlocked(await api.unlock(pin))
     } catch (cause) {
       setError(cause instanceof ApiError && cause.status === 429 ? "limited" : "invalid")
     } finally {
-      setBusy(false)
+      setBusy(null)
+    }
+  }
+
+  async function logout() {
+    if (busy) return
+    setBusy("logout")
+    setError(null)
+    try {
+      await onLoggedOut()
+    } catch {
+      setError("logout")
+      setBusy(null)
     }
   }
 
@@ -60,6 +72,7 @@ export function LockScreen({ session, onUnlocked, onLoggedOut }: {
               inputMode="numeric"
               value={pin}
               onChange={(event) => setPin(event.target.value)}
+              disabled={Boolean(busy)}
               placeholder={t("unlockPinPlaceholder")}
               aria-invalid={Boolean(error)}
             />
@@ -67,7 +80,7 @@ export function LockScreen({ session, onUnlocked, onLoggedOut }: {
           {error && (
             <Banner
               status="error"
-              title={error === "limited" ? t("rateLimited") : t("unlockError")}
+              title={error === "limited" ? t("rateLimited") : error === "logout" ? t("logoutError") : t("unlockError")}
             />
           )}
           <Button
@@ -76,16 +89,18 @@ export function LockScreen({ session, onUnlocked, onLoggedOut }: {
             variant="primary"
             size="lg"
             width="100%"
-            label={busy ? t("unlocking") : t("unlock")}
-            isLoading={busy}
-            isDisabled={!pin}
+            label={busy === "unlock" ? t("unlocking") : t("unlock")}
+            isLoading={busy === "unlock"}
+            isDisabled={!pin || Boolean(busy)}
           />
           <Button
             className="lock-logout"
             variant="ghost"
             icon={<LogOut />}
-            label={t("logout")}
-            onClick={onLoggedOut}
+            label={t("logoutAndSignInAgain")}
+            isLoading={busy === "logout"}
+            isDisabled={Boolean(busy)}
+            onClick={() => void logout()}
           />
         </form>
       </Card>

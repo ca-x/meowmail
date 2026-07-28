@@ -10,7 +10,7 @@ import { Tokenizer } from "@astryxdesign/core/Tokenizer"
 import { useToast } from "@astryxdesign/core/Toast"
 import { createStaticSource, type SearchableItem } from "@astryxdesign/core/Typeahead"
 import { ArrowLeft, Clock3, FilePenLine, FileText, MailPlus, Paperclip, Send, Trash2, UserRound, WandSparkles } from "lucide-react"
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type FormEvent } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ChangeEvent, type FormEvent } from "react"
 
 import { api } from "../../app/api"
 import type { ComposeAttachmentInput, Contact, MailAccount, MailPreferences, Signature } from "../../app/types"
@@ -26,6 +26,7 @@ export interface ComposeDraft {
   subject?: string
   body?: string
   htmlBody?: string | null
+  editorDocument?: unknown | null
   attachments?: ComposeAttachmentInput[]
   signatureId?: string | null
   applySignature?: boolean
@@ -123,8 +124,8 @@ export const ComposeDialog = forwardRef<ComposeWorkspaceRef, {
     [contacts],
   )
   const initialContent = useMemo(
-    () => draft?.htmlBody || paragraphsToHtml(draft?.body || ""),
-    [bodyRevision, draft?.body, draft?.htmlBody],
+    () => draftEditorContent(draft),
+    [bodyRevision, draft?.body, draft?.editorDocument, draft?.htmlBody],
   )
 
   useEffect(() => {
@@ -225,7 +226,7 @@ export const ComposeDialog = forwardRef<ComposeWorkspaceRef, {
         applySignature,
       }
       if (draft?.id) {
-        await api.updateDraft(draft.id, { ...input, scheduledAt: null })
+        await api.updateDraft(draft.id, { ...input, editorDocument: email.editorDocument, scheduledAt: null })
         await api.sendDraft(draft.id)
       } else {
         await api.sendMessage(input)
@@ -253,6 +254,7 @@ export const ComposeDialog = forwardRef<ComposeWorkspaceRef, {
         subject,
         textBody: email.text,
         htmlBody: email.html,
+        editorDocument: email.editorDocument,
         attachments: composeAttachments,
         signatureId: signatureId === "none" ? null : signatureId,
         applySignature,
@@ -273,12 +275,13 @@ export const ComposeDialog = forwardRef<ComposeWorkspaceRef, {
   async function exportEmail() {
     const fallbackText = bodyText.trim()
     if (!editorRef.current) {
-      return { html: paragraphsToHtml(fallbackText), text: fallbackText }
+      return { html: paragraphsToHtml(fallbackText), text: fallbackText, editorDocument: null }
     }
     const email = await editorRef.current.getEmail()
     return {
       html: email.html,
       text: email.text.trim() || fallbackText,
+      editorDocument: editorRef.current.getJSON(),
     }
   }
 
@@ -518,6 +521,17 @@ function configureEditorDom(ref: EmailEditorRef, label: string) {
   element.setAttribute("aria-label", label)
   element.setAttribute("aria-multiline", "true")
   element.setAttribute("data-testid", "compose-rich-editor")
+}
+
+function draftEditorContent(draft?: ComposeDraft | null): ComponentProps<typeof EmailEditor>["content"] {
+  if (isEditorDocument(draft?.editorDocument)) {
+    return draft.editorDocument as ComponentProps<typeof EmailEditor>["content"]
+  }
+  return draft?.htmlBody || paragraphsToHtml(draft?.body || "")
+}
+
+function isEditorDocument(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && (value as { type?: unknown }).type === "doc")
 }
 
 function initialSignatureId(account: MailAccount | undefined, draft?: ComposeDraft | null) {

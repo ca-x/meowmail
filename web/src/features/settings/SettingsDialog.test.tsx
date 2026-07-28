@@ -24,6 +24,7 @@ const session = {
     hasPin: false,
     hasAvatar: false,
     aiEnabled: false,
+    autoLockMinutes: null,
     updatedAt: 1,
   },
 }
@@ -71,7 +72,6 @@ function renderSettings(accounts: MailAccount[] = [], onOpenAccounts = vi.fn(), 
         onMailPreferencesChanged={vi.fn()}
         onAccountsChanged={vi.fn()}
         onSessionChanged={vi.fn()}
-        onLocked={vi.fn()}
         onLoggedOut={onLoggedOut}
         onClose={vi.fn()}
         onOpenAccounts={onOpenAccounts}
@@ -91,6 +91,18 @@ test("configured mail accounts show a management summary instead of the first-ac
   expect(screen.queryByText(/Add your first IMAP/i)).not.toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Manage mail accounts" }))
   expect(onOpenAccounts).toHaveBeenCalledOnce()
+})
+
+test("about settings show the running application version", async () => {
+  const user = userEvent.setup()
+  mockSettingsLoad()
+  renderSettings()
+  await useEnglish(user)
+
+  await user.click(screen.getByRole("tab", { name: "About" }))
+
+  expect(screen.getByRole("region", { name: "About Meowmail" })).toBeInTheDocument()
+  expect(screen.getByText(session.version)).toBeInTheDocument()
 })
 
 test("calendar settings expose every supported display option and persist the selection", async () => {

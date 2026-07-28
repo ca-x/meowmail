@@ -596,6 +596,70 @@ async fn scheduled_draft_validation_does_not_leave_partial_draft() {
 }
 
 #[tokio::test]
+async fn draft_editor_document_round_trips_through_the_http_api() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::initialize(
+        Config::new(
+            "correct horse battery staple".into(),
+            directory.path().to_path_buf(),
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+    let owner = UserRepository::new(state.db.clone())
+        .authenticate_local("admin", "correct horse battery staple")
+        .await
+        .unwrap();
+    let account = AccountRepository::new(state.db.clone(), state.vault.clone())
+        .create(owner.id, account_input("Work", "me@example.com"))
+        .await
+        .unwrap();
+    let app = build_router(state);
+    let session = login(&app).await;
+    let document = json!({
+        "type": "doc",
+        "content": [{
+            "type": "paragraph",
+            "content": [{
+                "type": "text",
+                "marks": [{ "type": "bold" }],
+                "text": "Keep this formatting"
+            }]
+        }]
+    });
+
+    let created = session_request(
+        &app,
+        "POST",
+        "/api/v1/drafts",
+        &session,
+        Some(json!({
+            "accountId": account.id,
+            "to": ["alice@example.com"],
+            "cc": [],
+            "bcc": [],
+            "subject": "Rich draft",
+            "textBody": "Keep this formatting",
+            "htmlBody": "<p><strong>Keep this formatting</strong></p>",
+            "editorDocument": document,
+            "applySignature": true
+        })),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::OK);
+
+    let listed =
+        json_body(session_request(&app, "GET", "/api/v1/drafts", &session, None).await).await;
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["editorDocument"], document);
+    assert_eq!(
+        listed[0]["htmlBody"],
+        "<p><strong>Keep this formatting</strong></p>"
+    );
+}
+
+#[tokio::test]
 async fn mcp_token_cannot_access_another_users_mail_resources() {
     let directory = tempfile::tempdir().unwrap();
     let state = AppState::initialize(
@@ -685,6 +749,7 @@ async fn mcp_token_cannot_access_another_users_mail_resources() {
                 subject: "Other draft".into(),
                 text_body: "Other user's draft body".into(),
                 html_body: None,
+                editor_document: None,
                 attachments: Vec::new(),
                 signature_id: None,
                 apply_signature: true,
@@ -846,6 +911,7 @@ async fn email_draft_send_claim_is_atomic_and_uncertain_drafts_cannot_be_reclaim
                 subject: "Atomic send".into(),
                 text_body: "Only send once.".into(),
                 html_body: None,
+                editor_document: None,
                 attachments: Vec::new(),
                 signature_id: None,
                 apply_signature: true,
@@ -887,6 +953,7 @@ async fn email_draft_send_claim_is_atomic_and_uncertain_drafts_cannot_be_reclaim
                 subject: "Interrupted send".into(),
                 text_body: "The process stops after claiming this draft.".into(),
                 html_body: None,
+                editor_document: None,
                 attachments: Vec::new(),
                 signature_id: None,
                 apply_signature: true,
@@ -955,6 +1022,7 @@ async fn failed_scheduled_draft_is_removed_from_due_queue() {
                 subject: "Scheduled send".into(),
                 text_body: "Do not retry forever.".into(),
                 html_body: None,
+                editor_document: None,
                 attachments: Vec::new(),
                 signature_id: None,
                 apply_signature: true,
@@ -1023,6 +1091,7 @@ async fn public_send_failure_becomes_ambiguous_and_cannot_be_retried() {
                 subject: "SMTP failure".into(),
                 text_body: "This cannot connect to SMTP.".into(),
                 html_body: None,
+                editor_document: None,
                 attachments: Vec::new(),
                 signature_id: None,
                 apply_signature: true,

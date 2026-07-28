@@ -1,10 +1,11 @@
 import { Badge } from "@astryxdesign/core/Badge"
 import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
+import { Selector } from "@astryxdesign/core/Selector"
 import { Switch } from "@astryxdesign/core/Switch"
 import { TextInput } from "@astryxdesign/core/TextInput"
-import { Bot, Copy, KeyRound, LockKeyhole, RotateCw, ShieldCheck } from "lucide-react"
-import { useEffect, useState, type FormEvent } from "react"
+import { Bot, Clock3, Copy, KeyRound, RotateCw, ShieldCheck } from "lucide-react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 
 import { api } from "../../app/api"
 import type { McpSettings, PublicUser, SessionResponse } from "../../app/types"
@@ -19,11 +20,11 @@ const defaultMcpSettings: McpSettings = {
   endpoint: "/mcp",
 }
 
-export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLocked, onLoggedOut, onClose, onNotice }: {
+export function SecuritySettingsPanel({ isOpen, isActive, session, onSessionChanged, onLoggedOut, onClose, onNotice }: {
   isOpen: boolean
+  isActive: boolean
   session: SessionResponse
   onSessionChanged: (session: SessionResponse) => void
-  onLocked: (session: SessionResponse) => void
   onLoggedOut: () => void
   onClose: () => void
   onNotice: (notice: SettingsNotice) => void
@@ -37,8 +38,9 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
   const [confirmPassword, setConfirmPassword] = useState("")
   const [mcpSettings, setMcpSettings] = useState<McpSettings>(defaultMcpSettings)
   const [mcpToken, setMcpToken] = useState<string | null>(null)
-  const [busy, setBusy] = useState<"password" | "pin" | "lock" | "ai" | "mcp" | null>(null)
+  const [busy, setBusy] = useState<"password" | "pin" | "autoLock" | "ai" | "mcp" | null>(null)
   const [mcpLoading, setMcpLoading] = useState(true)
+  const pinInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     api.mcpSettings()
@@ -53,6 +55,12 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
     setNewPassword("")
     setConfirmPassword("")
   }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen || !isActive || user.hasPin) return
+    const timer = window.setTimeout(() => pinInputRef.current?.focus())
+    return () => window.clearTimeout(timer)
+  }, [isActive, isOpen, user.hasPin])
 
   function publishUser(next: PublicUser) {
     setUser(next)
@@ -108,14 +116,16 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
     }
   }
 
-  async function lockNow() {
-    setBusy("lock")
+  async function updateAutoLock(minutes: number | null) {
+    const previous = user
+    setBusy("autoLock")
     try {
-      const next = await api.lock()
-      onClose()
-      onLocked(next)
+      publishUser(await api.updateAutoLock(minutes))
+      onNotice({ key: minutes === null ? "autoLockDisabled" : "autoLockSaved" })
     } catch {
+      setUser(previous)
       onNotice({ key: "genericError", error: true })
+    } finally {
       setBusy(null)
     }
   }
@@ -260,6 +270,7 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
       <section className="settings-security-block" aria-label={t("securityAndLock")}>
         <form className="settings-inline-form" onSubmit={savePin}>
           <TextInput
+            ref={pinInputRef}
             {...{ autoComplete: "new-password", inputMode: "numeric" }}
             type="password"
             label={user.hasPin ? t("changePin") : t("setPin")}
@@ -270,12 +281,33 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
           />
           <Button label={t("save")} icon={<KeyRound aria-hidden="true" />} type="submit" variant="secondary" isLoading={busy === "pin"} isDisabled={!pin || busy === "pin"} />
         </form>
-        {user.hasPin && (
-          <div className="settings-button-row">
-            <Button label={t("lockNow")} icon={<LockKeyhole aria-hidden="true" />} variant="secondary" isLoading={busy === "lock"} isDisabled={Boolean(busy)} onClick={() => void lockNow()} />
-            <Button label={t("removePin")} variant="ghost" isDisabled={Boolean(busy)} onClick={() => void removePin()} />
-          </div>
+        <Switch
+          label={t("automaticSessionLock")}
+          description={t("automaticSessionLockDescription")}
+          value={user.autoLockMinutes !== null}
+          onChange={(enabled) => void updateAutoLock(enabled ? 15 : null)}
+          isLoading={busy === "autoLock"}
+          isDisabled={Boolean(busy) || !user.hasPin}
+          disabledMessage={!user.hasPin ? t("automaticSessionLockRequiresPin") : undefined}
+          labelSpacing="spread"
+          labelPosition="start"
+        />
+        {user.autoLockMinutes !== null && (
+          <Selector
+            label={t("idleLockDelay")}
+            startIcon={<Clock3 aria-hidden="true" />}
+            value={String(user.autoLockMinutes)}
+            changeAction={(value) => updateAutoLock(Number(value))}
+            options={[5, 15, 30, 60].map((minutes) => ({
+              value: String(minutes),
+              label: t("minutesCount", { count: minutes }),
+            }))}
+            isLoading={busy === "autoLock"}
+            isDisabled={Boolean(busy)}
+            width="100%"
+          />
         )}
+        {user.hasPin && <div className="settings-button-row"><Button label={t("removePin")} variant="ghost" isDisabled={Boolean(busy)} onClick={() => void removePin()} /></div>}
       </section>
 
       <div className="settings-subsection-divider" />

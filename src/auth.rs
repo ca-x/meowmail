@@ -324,14 +324,11 @@ async fn oidc_callback(
     ))
 }
 
-async fn logout(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    _mutation: MutationSession,
-) -> Result<HeaderMap, AppError> {
-    if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
-        state.sessions.remove(&token);
-    }
+async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<HeaderMap, AppError> {
+    let current = current_session(&state, &headers)?;
+    require_csrf(&headers, &current.csrf_token)?;
+    let token = cookie_value(&headers, SESSION_COOKIE).ok_or(AppError::Unauthorized)?;
+    state.sessions.remove(&token);
     expired_cookie_headers()
 }
 

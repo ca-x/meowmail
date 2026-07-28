@@ -58,6 +58,7 @@ impl UserRepository {
             avatar_mime: Set(None),
             avatar_data: Set(None),
             ai_enabled: Set(false),
+            auto_lock_minutes: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             last_login_at: Set(None),
@@ -171,6 +172,7 @@ impl UserRepository {
             avatar_mime: Set(None),
             avatar_data: Set(None),
             ai_enabled: Set(false),
+            auto_lock_minutes: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             last_login_at: Set(Some(now)),
@@ -304,6 +306,31 @@ impl UserRepository {
             .map_err(AppError::internal)?;
         let mut active = self.get_model(id).await?.into_active_model();
         active.pin_hash = Set(pin_hash);
+        if pin.is_none() {
+            active.auto_lock_minutes = Set(None);
+        }
+        active.updated_at = Set(OffsetDateTime::now_utc().unix_timestamp());
+        PublicUser::try_from(active.update(self.db.connection()).await?)
+    }
+
+    pub async fn set_auto_lock_minutes(
+        &self,
+        id: Uuid,
+        minutes: Option<u32>,
+    ) -> Result<PublicUser, AppError> {
+        if minutes.is_some_and(|value| !matches!(value, 5 | 15 | 30 | 60)) {
+            return Err(AppError::Validation(
+                "auto-lock minutes must be 5, 15, 30, 60, or null".into(),
+            ));
+        }
+        let model = self.get_model(id).await?;
+        if minutes.is_some() && model.pin_hash.is_none() {
+            return Err(AppError::Validation(
+                "set a personal PIN before enabling automatic lock".into(),
+            ));
+        }
+        let mut active = model.into_active_model();
+        active.auto_lock_minutes = Set(minutes.map(|value| value as i32));
         active.updated_at = Set(OffsetDateTime::now_utc().unix_timestamp());
         PublicUser::try_from(active.update(self.db.connection()).await?)
     }
@@ -345,6 +372,9 @@ impl TryFrom<user::Model> for PublicUser {
             has_pin: model.pin_hash.is_some(),
             has_avatar: model.avatar_data.is_some(),
             ai_enabled: model.ai_enabled,
+            auto_lock_minutes: model
+                .auto_lock_minutes
+                .and_then(|value| u32::try_from(value).ok()),
             updated_at: model.updated_at,
         })
     }

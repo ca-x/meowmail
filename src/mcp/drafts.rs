@@ -3,6 +3,7 @@ use sea_orm::{
     QuerySelect, Set, sea_query::Expr,
 };
 use serde::Serialize;
+use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -27,6 +28,7 @@ pub struct EmailDraft {
     pub subject: String,
     pub text_body: String,
     pub html_body: Option<String>,
+    pub editor_document: Option<Value>,
     pub attachments: Vec<ComposeAttachmentInput>,
     pub signature_id: Option<Uuid>,
     pub apply_signature: bool,
@@ -89,6 +91,7 @@ impl StoredDraft {
             subject: self.draft.subject,
             text_body: self.draft.text_body,
             html_body: self.draft.html_body,
+            editor_document: self.draft.editor_document,
             attachments: self.draft.attachments,
             signature_id: self.draft.signature_id,
             apply_signature: self.draft.apply_signature,
@@ -155,6 +158,10 @@ impl DraftRepository {
             subject: Set(compose.subject),
             text_body: Set(compose.text_body),
             html_body: Set(compose.html_body),
+            editor_document: Set(compose
+                .editor_document
+                .map(|value| serde_json::to_string(&value).map_err(AppError::internal))
+                .transpose()?),
             attachments_json: Set(
                 serde_json::to_string(&compose.attachments).map_err(AppError::internal)?
             ),
@@ -215,6 +222,10 @@ impl DraftRepository {
         active.subject = Set(compose.subject);
         active.text_body = Set(compose.text_body);
         active.html_body = Set(compose.html_body);
+        active.editor_document = Set(compose
+            .editor_document
+            .map(|value| serde_json::to_string(&value).map_err(AppError::internal))
+            .transpose()?);
         active.attachments_json =
             Set(serde_json::to_string(&compose.attachments).map_err(AppError::internal)?);
         active.signature_id = Set(compose.signature_id.map(|id| id.to_string()));
@@ -408,6 +419,10 @@ impl TryFrom<email_draft::Model> for EmailDraft {
             subject: model.subject,
             text_body: model.text_body,
             html_body: model.html_body,
+            editor_document: model
+                .editor_document
+                .map(|value| serde_json::from_str(&value).map_err(AppError::internal))
+                .transpose()?,
             attachments: serde_json::from_str(&model.attachments_json)
                 .map_err(AppError::internal)?,
             signature_id: model

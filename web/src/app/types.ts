@@ -106,6 +106,7 @@ export interface PublicUser {
   hasPin: boolean
   hasAvatar: boolean
   aiEnabled: boolean
+  autoLockMinutes: number | null
   updatedAt: number
 }
 
@@ -191,6 +192,7 @@ export interface EmailDraft {
   subject: string
   textBody: string
   htmlBody?: string | null
+  editorDocument?: unknown | null
   attachments: ComposeAttachmentInput[]
   signatureId?: string | null
   applySignature: boolean
@@ -222,6 +224,7 @@ export interface ComposeMessageInput {
 }
 
 export interface DraftInput extends ComposeMessageInput {
+  editorDocument?: unknown | null
   scheduledAt?: number | null
 }
 
@@ -384,6 +387,27 @@ export interface CalendarEvent {
   timezone?: string | null
   createdAt: number
   updatedAt: number
+}
+
+export interface LocalCalendarEvent {
+  id: string
+  summary: string
+  description: string
+  location: string
+  startsAt: number
+  endsAt: number
+  allDay: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface LocalCalendarEventInput {
+  summary: string
+  description: string
+  location: string
+  startsAt: number
+  endsAt: number
+  allDay: boolean
 }
 
 export type CalendarFeature =

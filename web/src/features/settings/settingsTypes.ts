@@ -6,4 +6,4 @@ export type SettingsNotice = {
   error?: boolean
 }
 
-export type SettingsTab = "general" | "mail" | "ai" | "calendar" | "automation" | "security" | "data"
+export type SettingsTab = "general" | "mail" | "ai" | "calendar" | "automation" | "security" | "data" | "about"

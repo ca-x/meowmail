@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, test, vi } from "vitest"
 
@@ -24,8 +24,11 @@ vi.mock("@file-viewer/web-full", () => ({
 vi.mock("@react-email/editor", async () => {
   const React = await import("react")
 
-  function textFromHtml(value: string) {
-    return value.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, "").trim()
+  function textFromContent(value: unknown): string {
+    if (typeof value === "string") return value.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, "").trim()
+    if (!value || typeof value !== "object") return ""
+    const node = value as { text?: string; content?: unknown[] }
+    return [node.text || "", ...(node.content || []).map(textFromContent)].join("").trim()
   }
 
   function escapeHtml(value: string) {
@@ -35,22 +38,34 @@ vi.mock("@react-email/editor", async () => {
       .replace(/>/g, "&gt;")
   }
 
+  function documentFromText(value: string) {
+    return {
+      type: "doc",
+      content: [{
+        type: "paragraph",
+        attrs: { textAlign: "left" },
+        content: value ? [{ type: "text", text: value }] : [],
+      }],
+    }
+  }
+
   const EmailEditor = React.forwardRef<unknown, {
     className?: string
-    content?: string
+    content?: unknown
     onReady?: (ref: unknown) => void
     onUpdate?: (ref: unknown) => void
   }>(function MockEmailEditor({ className, content = "", onReady, onUpdate }, forwardedRef) {
     const hostRef = React.useRef<HTMLDivElement | null>(null)
-    const textRef = React.useRef(textFromHtml(content))
+    const textRef = React.useRef(textFromContent(content))
+    const documentRef = React.useRef(typeof content === "object" ? content : documentFromText(textRef.current))
     const helperRef = React.useRef<unknown>(null)
 
     if (!helperRef.current) {
       helperRef.current = {
-        getEmail: async () => ({ html: `<p>${escapeHtml(textRef.current)}</p>`, text: textRef.current }),
+        getEmail: async () => ({ html: `<html><body data-delivery-layout="centered"><p>${escapeHtml(textRef.current)}</p></body></html>`, text: textRef.current }),
         getEmailHTML: async () => `<p>${escapeHtml(textRef.current)}</p>`,
         getEmailText: async () => textRef.current,
-        getJSON: () => ({ type: "doc", content: [] }),
+        getJSON: () => documentRef.current,
         editor: {
           getText: () => textRef.current,
           view: { dom: null as HTMLDivElement | null },
@@ -60,7 +75,8 @@ vi.mock("@react-email/editor", async () => {
 
     React.useImperativeHandle(forwardedRef, () => helperRef.current)
     React.useEffect(() => {
-      textRef.current = textFromHtml(content)
+      textRef.current = textFromContent(content)
+      documentRef.current = typeof content === "object" ? content : documentFromText(textRef.current)
       if (hostRef.current) hostRef.current.textContent = textRef.current
     }, [content])
     React.useEffect(() => {
@@ -73,6 +89,7 @@ vi.mock("@react-email/editor", async () => {
       className,
       contentEditable: true,
       "data-testid": "compose-rich-editor",
+      "data-editor-content": JSON.stringify(content),
       ref: hostRef,
       role: "textbox",
       "aria-label": "Message",
@@ -81,6 +98,7 @@ vi.mock("@react-email/editor", async () => {
       tabIndex: 0,
       onInput: (event: React.FormEvent<HTMLDivElement>) => {
         textRef.current = event.currentTarget.textContent || ""
+        documentRef.current = documentFromText(textRef.current)
         onUpdate?.(helperRef.current)
       },
     }, textRef.current)
@@ -136,6 +154,7 @@ const session: SessionResponse = {
     hasPin: true,
     hasAvatar: false,
     aiEnabled: false,
+    autoLockMinutes: null,
     updatedAt: 1_700_000_000,
   },
 }
@@ -165,15 +184,16 @@ function stubWorkspaceApi() {
   vi.spyOn(api, "calendars").mockResolvedValue([])
   vi.spyOn(api, "calendarDayInfo").mockResolvedValue([])
   vi.spyOn(api, "calendarEvents").mockResolvedValue([])
+  vi.spyOn(api, "localCalendarEvents").mockResolvedValue([])
 }
 
-function renderWorkspace() {
+function renderWorkspace(currentSession = session, onLocked = vi.fn()) {
   render(
     <Providers>
       <MailWorkspace
-        session={session}
+        session={currentSession}
         onSessionChanged={vi.fn()}
-        onLocked={vi.fn()}
+        onLocked={onLocked}
         onLoggedOut={vi.fn()}
       />
     </Providers>,
@@ -226,6 +246,68 @@ test("the compose workspace cannot be dismissed while a send request is pending"
 
   finishSend()
   await waitFor(() => expect(onSent).toHaveBeenCalledOnce())
+})
+
+test("drafts preserve the editor document separately from delivery HTML", async () => {
+  vi.spyOn(api, "signatures").mockResolvedValue([])
+  vi.spyOn(api, "contacts").mockResolvedValue([])
+  const createDraft = vi.spyOn(api, "createDraft").mockImplementation(async (input) => ({
+    id: "draft-rich-text",
+    accountId: input.accountId,
+    to: input.to,
+    cc: input.cc,
+    bcc: input.bcc,
+    subject: input.subject,
+    textBody: input.textBody,
+    htmlBody: input.htmlBody,
+    editorDocument: input.editorDocument,
+    attachments: input.attachments || [],
+    signatureId: input.signatureId,
+    applySignature: input.applySignature ?? true,
+    scheduledAt: input.scheduledAt,
+    status: "draft",
+    createdAt: 1,
+    updatedAt: 1,
+  }))
+  const user = userEvent.setup()
+  const firstRender = render(
+    <Providers>
+      <ComposeDialog accounts={[account]} activeAccountId={account.id} preferences={defaultMailPreferences} onClose={vi.fn()} onSent={vi.fn()} />
+    </Providers>,
+  )
+
+  await user.type(screen.getByRole("textbox", { name: /Message|正文/ }), "Left aligned body")
+  await user.click(screen.getByRole("button", { name: /Save draft|存为草稿/ }))
+  await waitFor(() => expect(createDraft).toHaveBeenCalledOnce())
+
+  const saved = createDraft.mock.calls[0][0]
+  expect(saved.htmlBody).toContain("data-delivery-layout=\"centered\"")
+  expect(saved.editorDocument).toMatchObject({
+    type: "doc",
+    content: [{ attrs: { textAlign: "left" } }],
+  })
+
+  firstRender.unmount()
+  render(
+    <Providers>
+      <ComposeDialog
+        accounts={[account]}
+        activeAccountId={account.id}
+        preferences={defaultMailPreferences}
+        draft={{
+          id: "draft-rich-text",
+          accountId: account.id,
+          body: saved.textBody,
+          htmlBody: saved.htmlBody,
+          editorDocument: saved.editorDocument,
+        }}
+        onClose={vi.fn()}
+        onSent={vi.fn()}
+      />
+    </Providers>,
+  )
+
+  expect(screen.getByTestId("compose-rich-editor")).toHaveAttribute("data-editor-content", JSON.stringify(saved.editorDocument))
 })
 
 test("an unchanged saved draft closes without a discard confirmation", async () => {
@@ -462,6 +544,50 @@ test("calendar is a top-level workspace and the unused notification bell is abse
   expect(await screen.findByRole("main", { name: /Calendar|日历/ })).toBeInTheDocument()
   expect(window.location.pathname).toBe("/calendar")
   expect(screen.queryByRole("button", { name: /^Notifications$|^通知$/ })).not.toBeInTheDocument()
+})
+
+test("local calendar event deletion uses the component confirmation dialog", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  const localEvent = {
+    id: "local-event-1",
+    summary: "Calendar QA event",
+    description: "",
+    location: "",
+    startsAt: Math.floor(new Date("2026-07-28T18:30:00").getTime() / 1000),
+    endsAt: Math.floor(new Date("2026-07-28T19:30:00").getTime() / 1000),
+    allDay: false,
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_000,
+  }
+  vi.mocked(api.localCalendarEvents).mockResolvedValue([localEvent])
+  const deleteEvent = vi.spyOn(api, "deleteLocalCalendarEvent").mockResolvedValue(undefined)
+  renderWorkspace()
+
+  await user.click(await screen.findByRole("radio", { name: /Calendar|日历/ }))
+  await screen.findAllByText(localEvent.summary)
+  await user.click(screen.getByRole("button", { name: /Edit local event|编辑本地事件/ }))
+  await user.click(screen.getByRole("button", { name: /^Delete$|^删除$/ }))
+
+  const dialog = await screen.findByRole("alertdialog", { name: /Delete local event|删除本地事件/ })
+  await user.click(within(dialog).getByRole("button", { name: /^Delete$|^删除$/ }))
+
+  expect(deleteEvent).toHaveBeenCalledWith(localEvent.id)
+  await waitFor(() => expect(screen.queryByText(localEvent.summary)).not.toBeInTheDocument())
+})
+
+test("the account lock action guides users without a PIN to security settings", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  const lock = vi.spyOn(api, "lock")
+  renderWorkspace({ ...session, user: { ...session.user, hasPin: false } })
+
+  await user.click(await screen.findByRole("button", { name: /Profile and settings|个人资料与设置/ }))
+  await user.click(await screen.findByRole("menuitem", { name: /Lock current session|锁定当前会话/ }))
+
+  expect(lock).not.toHaveBeenCalled()
+  expect(await screen.findByRole("tab", { name: /Security|安全/ })).toHaveAttribute("aria-selected", "true")
+  await waitFor(() => expect(screen.getByLabelText(/Set personal PIN|设置个人 PIN/)).toHaveFocus())
 })
 
 test("tree navigation does not trigger global compose or message shortcuts", async () => {

@@ -39,6 +39,7 @@ pub struct PublicUser {
     pub has_pin: bool,
     pub has_avatar: bool,
     pub ai_enabled: bool,
+    pub auto_lock_minutes: Option<u32>,
     pub updated_at: i64,
 }
 
@@ -60,4 +61,10 @@ pub struct UserPasswordInput {
 #[serde(rename_all = "camelCase")]
 pub struct UserAiAccessInput {
     pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserAutoLockInput {
+    pub minutes: Option<u32>,
 }

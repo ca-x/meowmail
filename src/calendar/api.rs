@@ -15,7 +15,8 @@ use crate::{
 
 use super::{
     Calendar, CalendarAccount, CalendarAccountInput, CalendarDayInfo, CalendarEvent,
-    CalendarFeature, CalendarPreferences, CalendarRepository, CalendarUpdate, caldav, lunar,
+    CalendarFeature, CalendarPreferences, CalendarRepository, CalendarUpdate, LocalCalendarEvent,
+    LocalCalendarEventInput, caldav, lunar,
 };
 
 pub fn routes() -> Router<AppState> {
@@ -44,6 +45,14 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/calendar/day-info", get(list_day_info))
         .route("/calendar/events", get(list_events))
+        .route(
+            "/calendar/local-events",
+            get(list_local_events).post(create_local_event),
+        )
+        .route(
+            "/calendar/local-events/{id}",
+            axum::routing::patch(update_local_event).delete(delete_local_event),
+        )
 }
 
 async fn get_preferences(
@@ -262,6 +271,64 @@ async fn list_events(
     session: AuthenticatedSession,
     Query(query): Query<EventQuery>,
 ) -> Result<Json<Vec<CalendarEvent>>, AppError> {
+    let (start, end) = event_range(query)?;
+    Ok(Json(
+        CalendarRepository::new(state.db, state.vault)
+            .list_events(session.user_id, start, end)
+            .await?,
+    ))
+}
+
+async fn list_local_events(
+    State(state): State<AppState>,
+    session: AuthenticatedSession,
+    Query(query): Query<EventQuery>,
+) -> Result<Json<Vec<LocalCalendarEvent>>, AppError> {
+    let (start, end) = event_range(query)?;
+    Ok(Json(
+        CalendarRepository::new(state.db, state.vault)
+            .list_local_events(session.user_id, start, end)
+            .await?,
+    ))
+}
+
+async fn create_local_event(
+    State(state): State<AppState>,
+    mutation: MutationSession,
+    Json(input): Json<LocalCalendarEventInput>,
+) -> Result<Json<LocalCalendarEvent>, AppError> {
+    Ok(Json(
+        CalendarRepository::new(state.db, state.vault)
+            .create_local_event(mutation.0.user_id, input)
+            .await?,
+    ))
+}
+
+async fn update_local_event(
+    State(state): State<AppState>,
+    mutation: MutationSession,
+    Path(id): Path<Uuid>,
+    Json(input): Json<LocalCalendarEventInput>,
+) -> Result<Json<LocalCalendarEvent>, AppError> {
+    Ok(Json(
+        CalendarRepository::new(state.db, state.vault)
+            .update_local_event(mutation.0.user_id, id, input)
+            .await?,
+    ))
+}
+
+async fn delete_local_event(
+    State(state): State<AppState>,
+    mutation: MutationSession,
+    Path(id): Path<Uuid>,
+) -> Result<axum::http::StatusCode, AppError> {
+    CalendarRepository::new(state.db, state.vault)
+        .delete_local_event(mutation.0.user_id, id)
+        .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+fn event_range(query: EventQuery) -> Result<(i64, i64), AppError> {
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     let start = query.start.unwrap_or(now.saturating_sub(30 * 86_400));
     let end = query.end.unwrap_or(now.saturating_add(90 * 86_400));
@@ -270,9 +337,5 @@ async fn list_events(
             "calendar event range is invalid".into(),
         ));
     }
-    Ok(Json(
-        CalendarRepository::new(state.db, state.vault)
-            .list_events(session.user_id, start, end)
-            .await?,
-    ))
+    Ok((start, end))
 }
