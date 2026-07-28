@@ -152,6 +152,15 @@ fn contact_matches_query(contact: &Contact, query: &str) -> bool {
             .any(|alias| alias.contains(query))
 }
 
+fn map_contact_error(error: sea_orm::DbErr) -> AppError {
+    let message = error.to_string().to_ascii_lowercase();
+    if message.contains("unique") || message.contains("constraint") {
+        AppError::Conflict
+    } else {
+        AppError::from(error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::contact_matches_query;
@@ -182,14 +191,5 @@ mod tests {
         assert!(contact_matches_query(&english, "js"));
         assert!(contact_matches_query(&english, "design"));
         assert!(!contact_matches_query(&english, "zz"));
-    }
-}
-
-fn map_contact_error(error: sea_orm::DbErr) -> AppError {
-    let message = error.to_string().to_ascii_lowercase();
-    if message.contains("unique") || message.contains("constraint") {
-        AppError::Conflict
-    } else {
-        AppError::from(error)
     }
 }
