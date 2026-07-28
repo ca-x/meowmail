@@ -32,6 +32,7 @@ test("submits a local username and password", async () => {
       hasPassword: true,
       hasPin: false,
       hasAvatar: false,
+      aiEnabled: false,
       updatedAt: 1,
     },
   }), { status: 200, headers: { "content-type": "application/json" } })))

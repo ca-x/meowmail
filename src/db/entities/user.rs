@@ -13,6 +13,7 @@ pub struct Model {
     pub pin_hash: Option<String>,
     pub avatar_mime: Option<String>,
     pub avatar_data: Option<Vec<u8>>,
+    pub ai_enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
     pub last_login_at: Option<i64>,

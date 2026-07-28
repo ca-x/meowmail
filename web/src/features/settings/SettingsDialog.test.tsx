@@ -23,6 +23,7 @@ const session = {
     hasPassword: true,
     hasPin: false,
     hasAvatar: false,
+    aiEnabled: false,
     updatedAt: 1,
   },
 }
@@ -147,7 +148,7 @@ test("notification feedback follows a language change", async () => {
 
   await useEnglish(user)
   await user.click(screen.getByRole("tab", { name: "Automation" }))
-  await user.click(await screen.findByRole("checkbox", { name: /Enable new mail notifications/i }))
+  await user.click(await screen.findByRole("switch", { name: /Enable new mail notifications/i }))
   await user.click(screen.getByRole("button", { name: "Send test notification" }))
   expect(await screen.findByText("Test notification sent")).toBeInTheDocument()
 
@@ -267,7 +268,7 @@ test("mail settings save a vacation responder schedule and contacts-only scope",
   fireEvent.change(screen.getByLabelText("End time time"), { target: { value: "18:30" } })
   fireEvent.change(screen.getByRole("textbox", { name: "Automatic reply subject" }), { target: { value: "Out of office" } })
   fireEvent.change(screen.getByRole("textbox", { name: /^Automatic reply content/ }), { target: { value: "I am away this week." } })
-  await user.click(screen.getByRole("checkbox", { name: "Reply only to contacts" }))
+  await user.click(screen.getByRole("switch", { name: "Reply only to contacts" }))
   await user.click(screen.getByRole("button", { name: "Save mail preferences" }))
 
   await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({

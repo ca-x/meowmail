@@ -1,6 +1,5 @@
 import { Banner } from "@astryxdesign/core/Banner"
 import { Card } from "@astryxdesign/core/Card"
-import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput"
 import { MultiSelector } from "@astryxdesign/core/MultiSelector"
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl"
@@ -36,7 +35,7 @@ export function MailReplyPreferences({ preferences, accounts, onChange }: {
         <div><h3 id="reply-settings-title">{t("replyAndForward")}</h3><p>{t("replyAndForwardDescription")}</p></div>
       </div>
       <Card className="mail-preference-card" padding={4}>
-        <Switch label={t("attachOriginalOnReply")} description={t("attachOriginalOnReplyDescription")} value={preferences.attachOriginalOnReply} onChange={(attachOriginalOnReply) => onChange({ ...preferences, attachOriginalOnReply })} labelPosition="start" labelSpacing="spread" />
+        <Switch label={t("attachOriginalOnReply")} labelTooltip={t("attachOriginalOnReplyDescription")} value={preferences.attachOriginalOnReply} onChange={(attachOriginalOnReply) => onChange({ ...preferences, attachOriginalOnReply })} labelPosition="start" labelSpacing="spread" />
         <div className="mail-preference-choice-row">
           <strong>{t("replySubjectPrefix")}</strong>
           <SegmentedControl value={preferences.subjectPrefixLanguage} onChange={(subjectPrefixLanguage) => onChange({ ...preferences, subjectPrefixLanguage: subjectPrefixLanguage as MailPreferences["subjectPrefixLanguage"] })} label={t("replySubjectPrefix")} size="sm">
@@ -44,13 +43,13 @@ export function MailReplyPreferences({ preferences, accounts, onChange }: {
             <SegmentedControlItem value="english" label={t("useEnglishPrefix")} />
           </SegmentedControl>
         </div>
-        <Switch label={t("automaticForwarding")} description={t("automaticForwardingDescription")} value={preferences.autoForwardEnabled} onChange={(autoForwardEnabled) => onChange({ ...preferences, autoForwardEnabled })} labelPosition="start" labelSpacing="spread" />
+        <Switch label={t("automaticForwarding")} labelTooltip={t("automaticForwardingDescription")} value={preferences.autoForwardEnabled} onChange={(autoForwardEnabled) => onChange({ ...preferences, autoForwardEnabled })} labelPosition="start" labelSpacing="spread" />
         {preferences.autoForwardEnabled && (
           <div className="mail-preference-inset">
             <TextInput label={`${t("forwardToAddress")} · ${t("required")}`} type="email" value={preferences.autoForwardAddress || ""} onChange={(autoForwardAddress) => onChange({ ...preferences, autoForwardAddress })} placeholder={t("forwardToAddressPlaceholder")} width="100%" />
           </div>
         )}
-        <Switch label={t("automaticReply")} description={t("automaticReplyDescription")} value={preferences.autoReplyEnabled} onChange={(autoReplyEnabled) => onChange({ ...preferences, autoReplyEnabled })} labelPosition="start" labelSpacing="spread" />
+        <Switch label={t("automaticReply")} labelTooltip={t("automaticReplyDescription")} value={preferences.autoReplyEnabled} onChange={(autoReplyEnabled) => onChange({ ...preferences, autoReplyEnabled })} labelPosition="start" labelSpacing="spread" />
         {preferences.autoReplyEnabled && (
           <div className="mail-preference-inset vacation-reply-panel">
             <div className="vacation-reply-heading">
@@ -59,7 +58,7 @@ export function MailReplyPreferences({ preferences, accounts, onChange }: {
             </div>
             <MultiSelector
               label={t("automaticReplyAccountScope")}
-              description={t("automaticReplyAccountScopeDescription")}
+              labelTooltip={t("automaticReplyAccountScopeDescription")}
               value={selectedAutoReplyAccounts}
               onChange={(autoReplyAccountIds) => onChange({ ...preferences, autoReplyAccountIds })}
               options={accountOptions}
@@ -102,11 +101,13 @@ export function MailReplyPreferences({ preferences, accounts, onChange }: {
               width="100%"
             />
             <TextArea label={`${t("automaticReplyContent")} · ${t("required")}`} value={preferences.autoReplyText} onChange={(autoReplyText) => onChange({ ...preferences, autoReplyText })} placeholder={t("automaticReplyContentPlaceholder")} rows={5} width="100%" />
-            <CheckboxInput
+            <Switch
               label={t("automaticReplyContactsOnly")}
-              description={t("automaticReplyContactsOnlyDescription")}
+              labelTooltip={t("automaticReplyContactsOnlyDescription")}
               value={preferences.autoReplyContactsOnly}
               onChange={(autoReplyContactsOnly) => onChange({ ...preferences, autoReplyContactsOnly })}
+              labelPosition="start"
+              labelSpacing="spread"
             />
           </div>
         )}

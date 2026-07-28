@@ -11,7 +11,7 @@ import { TextArea } from "@astryxdesign/core/TextArea"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { useToast } from "@astryxdesign/core/Toast"
 import { AtSign, ContactRound, PencilLine, Search, Trash2, UserRoundPlus, UsersRound } from "lucide-react"
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 
 import { api } from "../../app/api"
 import type { Contact, ContactInput } from "../../app/types"
@@ -28,12 +28,13 @@ export function ContactsDialog({ isOpen, onClose }: {
   const showToast = useToast()
   const formDialog = useImperativeDialog({ purpose: "form", width: 520, padding: 0 })
   const deleteDialog = useImperativeConfirmDialog()
+  const formRevision = useRef(0)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const filtered = useMemo(() => contacts.filter((contact) => {
-    const haystack = `${contact.displayName} ${contact.email} ${contact.notes}`.toLowerCase()
+    const haystack = `${contact.displayName} ${contact.email} ${contact.notes} ${contact.searchAliases.join(" ")}`.toLowerCase()
     return haystack.includes(query.trim().toLowerCase())
   }), [contacts, query])
 
@@ -64,8 +65,10 @@ export function ContactsDialog({ isOpen, onClose }: {
   }, [query, isOpen])
 
   const openForm = (contact: Contact | null) => {
+    formRevision.current += 1
     formDialog.show(
       <ContactForm
+        key={`${contact?.id || "new"}-${formRevision.current}`}
         contact={contact}
         onCancel={formDialog.hide}
         onSubmit={async (input) => {
@@ -139,7 +142,7 @@ export function ContactsDialog({ isOpen, onClose }: {
                   startIcon={<Search aria-hidden="true" />}
                   value={query}
                   onChange={setQuery}
-                  placeholder={t("searchContacts")}
+                  placeholder={t("searchContactsPlaceholder")}
                   hasClear
                   width="100%"
                 />

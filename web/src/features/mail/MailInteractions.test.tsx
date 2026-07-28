@@ -134,6 +134,7 @@ const session: SessionResponse = {
     hasPassword: true,
     hasPin: true,
     hasAvatar: false,
+    aiEnabled: false,
     updatedAt: 1_700_000_000,
   },
 }
@@ -193,7 +194,7 @@ test("keyboard activation of the star button does not select the message row", a
   expect(onSelect).not.toHaveBeenCalled()
 })
 
-test("a compose dialog cannot be dismissed while a send request is pending", async () => {
+test("the compose workspace cannot be dismissed while a send request is pending", async () => {
   const user = userEvent.setup()
   let finishSend: () => void = () => {}
   const pendingSend = new Promise<void>((resolve) => { finishSend = resolve })
@@ -213,8 +214,8 @@ test("a compose dialog cannot be dismissed while a send request is pending", asy
   await waitFor(() => expect(send).toBeEnabled())
   await user.click(send)
 
-  const cancel = screen.getByRole("button", { name: /Cancel|取消/ })
-  expect(cancel).toBeDisabled()
+  const back = screen.getByRole("button", { name: /Back|返回/ })
+  expect(back).toBeDisabled()
   await user.keyboard("{Escape}")
   expect(onClose).not.toHaveBeenCalled()
 
@@ -250,7 +251,7 @@ test("an unchanged saved draft closes without a discard confirmation", async () 
     </Providers>,
   )
 
-  await screen.findByRole("dialog", { name: /Compose|写邮件/ })
+  await screen.findByRole("region", { name: /Compose|写邮件/ })
   await user.keyboard("{Escape}")
 
   expect(onClose).toHaveBeenCalledOnce()
@@ -285,7 +286,7 @@ test("a changed saved draft asks for discard confirmation before closing", async
     </Providers>,
   )
 
-  await screen.findByRole("dialog", { name: /Compose|写邮件/ })
+  await screen.findByRole("region", { name: /Compose|写邮件/ })
   const editor = screen.getByRole("textbox", { name: /Message|正文/ })
   await user.click(editor)
   await user.keyboard(" updated")
@@ -325,7 +326,7 @@ test("cancelling a draft discard confirmation keeps the composer open", async ()
     </Providers>,
   )
 
-  await screen.findByRole("dialog", { name: /Compose|写邮件/ })
+  await screen.findByRole("region", { name: /Compose|写邮件/ })
   const editor = screen.getByRole("textbox", { name: /Message|正文/ })
   await user.click(editor)
   await user.keyboard(" updated")
@@ -335,7 +336,7 @@ test("cancelling a draft discard confirmation keeps the composer open", async ()
   await user.click(screen.getByRole("button", { name: /Keep editing|继续编辑/ }))
 
   expect(onClose).not.toHaveBeenCalled()
-  expect(screen.getByRole("dialog", { name: /Compose|写邮件/ })).toBeInTheDocument()
+  expect(screen.getByRole("region", { name: /Compose|写邮件/ })).toBeInTheDocument()
   await waitFor(() => expect(screen.queryByRole("alertdialog", { name: /Discard this message|放弃这封邮件/ })).not.toBeInTheDocument())
 })
 
@@ -458,20 +459,20 @@ test("tree navigation does not trigger global compose or message shortcuts", asy
   await user.keyboard("{ArrowDown}c")
 
   expect(api.message).not.toHaveBeenCalled()
-  expect(screen.queryByRole("dialog", { name: /Compose|写邮件/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole("region", { name: /Compose|写邮件/ })).not.toBeInTheDocument()
 })
 
-test("closing compose restores focus to its trigger", async () => {
+test("closing the compose workspace restores focus to its trigger", async () => {
   stubWorkspaceApi()
   const user = userEvent.setup()
   renderWorkspace()
   const compose = await screen.findByRole("button", { name: /Compose|写邮件/ })
 
   await user.click(compose)
-  expect(await screen.findByRole("dialog", { name: /Compose|写邮件/ })).toBeInTheDocument()
+  expect(await screen.findByRole("region", { name: /Compose|写邮件/ })).toBeInTheDocument()
   await user.keyboard("{Escape}")
 
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: /Compose|写邮件/ })).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.queryByRole("region", { name: /Compose|写邮件/ })).not.toBeInTheDocument())
   expect(compose).toHaveFocus()
 })
 

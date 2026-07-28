@@ -16,7 +16,7 @@ use crate::{
 use super::migration::{
     ExportRequest, ImportReport, ImportRequest, MigrationArchive, MigrationService,
 };
-use super::{PublicUser, UserPasswordInput, UserProfile, UserRepository};
+use super::{PublicUser, UserAiAccessInput, UserPasswordInput, UserProfile, UserRepository};
 
 const MAX_AVATAR_SIZE: usize = 512 * 1024;
 
@@ -24,6 +24,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/users/me", get(profile).patch(update_profile))
         .route("/users/me/password", axum::routing::put(update_password))
+        .route("/users/me/ai", axum::routing::put(update_ai_access))
         .route(
             "/users/me/avatar",
             get(avatar).put(update_avatar).delete(remove_avatar),
@@ -81,6 +82,18 @@ async fn update_password(
         .await?;
     state.sessions.revoke_user(mutation.0.user_id);
     Ok(Json(user))
+}
+
+async fn update_ai_access(
+    State(state): State<AppState>,
+    mutation: MutationSession,
+    Json(input): Json<UserAiAccessInput>,
+) -> Result<Json<PublicUser>, AppError> {
+    Ok(Json(
+        UserRepository::new(state.db)
+            .set_ai_enabled(mutation.0.user_id, input.enabled)
+            .await?,
+    ))
 }
 
 async fn avatar(
@@ -167,6 +180,9 @@ async fn export_config(
     let user = UserRepository::new(state.db.clone())
         .get(mutation.0.user_id)
         .await?;
+    if request.sections.ai && !user.ai_enabled {
+        return Err(AppError::Forbidden);
+    }
     Ok(Json(
         MigrationService::new(state.db, state.vault)
             .export(&user, request)
@@ -182,6 +198,9 @@ async fn import_config(
     let user = UserRepository::new(state.db.clone())
         .get(mutation.0.user_id)
         .await?;
+    if request.sections.ai && !user.ai_enabled {
+        return Err(AppError::Forbidden);
+    }
     Ok(Json(
         MigrationService::new(state.db, state.vault)
             .import(&user, request)

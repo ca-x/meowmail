@@ -3,6 +3,7 @@ import { Button } from "@astryxdesign/core/Button"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { FileInput } from "@astryxdesign/core/FileInput"
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl"
+import { TextInput } from "@astryxdesign/core/TextInput"
 import { Archive, Download, ShieldCheck, Upload } from "lucide-react"
 import { useState } from "react"
 
@@ -19,6 +20,8 @@ const defaultSections: MigrationSections = {
   notifications: true,
   cleanup: true,
   preferences: true,
+  ai: true,
+  calendar: true,
 }
 
 export function DataSettingsPanel({ session, onSessionChanged, onMailPreferencesChanged, onAccountsChanged, onNotice }: {
@@ -29,9 +32,10 @@ export function DataSettingsPanel({ session, onSessionChanged, onMailPreferences
   onNotice: (notice: SettingsNotice) => void
 }) {
   const { t } = useI18n()
+  const initialSections = { ...defaultSections, ai: session.user.aiEnabled }
   const [migrationScope, setMigrationScope] = useState<MigrationScope>("mine")
-  const [exportSections, setExportSections] = useState(defaultSections)
-  const [importSections, setImportSections] = useState(defaultSections)
+  const [exportSections, setExportSections] = useState(initialSections)
+  const [importSections, setImportSections] = useState(initialSections)
   const [passphrase, setPassphrase] = useState("")
   const [archive, setArchive] = useState<MigrationArchive | null>(null)
   const [archiveFile, setArchiveFile] = useState<File | null>(null)
@@ -71,7 +75,7 @@ export function DataSettingsPanel({ session, onSessionChanged, onMailPreferences
         || !parsed.sections
         || typeof parsed.encryptedData !== "string") throw new Error("invalid archive")
       setArchive(parsed)
-      setImportSections({ ...parsed.sections })
+      setImportSections({ ...parsed.sections, ai: session.user.aiEnabled && parsed.sections.ai })
     } catch {
       setArchive(null)
       setArchiveFile(null)
@@ -101,7 +105,7 @@ export function DataSettingsPanel({ session, onSessionChanged, onMailPreferences
         values: {
           users: report.usersImported,
           accounts: report.accountsImported,
-          rules: report.rulesImported,
+          rules: report.rulesImported + report.autoLabelRulesImported,
           conflicts: report.conflicts.length,
         },
       })
@@ -129,12 +133,17 @@ export function DataSettingsPanel({ session, onSessionChanged, onMailPreferences
           ) : null}
         </div>
         {migrationScope === "allUsers" && <Banner status="warning" title={t("allUsers")} description={t("allUsersSensitiveNote")} icon={<ShieldCheck aria-hidden="true" />} />}
-        <SectionPicker value={exportSections} onChange={setExportSections} t={t} />
-        <label className="settings-native-field">
-          <span>{t("archivePassphrase")}</span>
-          <input type="password" autoComplete="new-password" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} placeholder={t("archivePassphrasePlaceholder")} />
-          <small>{t("archivePassphraseHint")}</small>
-        </label>
+        <SectionPicker value={exportSections} onChange={setExportSections} t={t} showAi={session.user.aiEnabled} />
+        <TextInput
+          {...{ autoComplete: "new-password" }}
+          type="password"
+          label={t("archivePassphrase")}
+          labelTooltip={t("archivePassphraseHint")}
+          value={passphrase}
+          onChange={setPassphrase}
+          placeholder={t("archivePassphrasePlaceholder")}
+          width="100%"
+        />
         <div className="settings-transfer-actions">
           <Button label={t("exportConfiguration")} icon={<Download aria-hidden="true" />} variant="secondary" isLoading={busy === "export"} isDisabled={!passphrase || !hasSection(exportSections) || Boolean(busy)} onClick={() => void exportConfiguration()} />
           <FileInput
@@ -153,7 +162,7 @@ export function DataSettingsPanel({ session, onSessionChanged, onMailPreferences
             <div className="settings-status-row">
               <div><strong>{archiveFile?.name}</strong><small>{archive.scope === "allUsers" ? t("allUsersArchive") : t("personalArchive")}</small></div>
             </div>
-            <SectionPicker value={importSections} available={archive.sections} onChange={setImportSections} t={t} />
+            <SectionPicker value={importSections} available={archive.sections} onChange={setImportSections} t={t} showAi={session.user.aiEnabled} />
             <Button label={t("importSelectedConfiguration")} icon={<Upload aria-hidden="true" />} variant="primary" isLoading={busy === "import"} isDisabled={!passphrase || !hasSection(importSections) || Boolean(busy)} onClick={() => void importConfiguration()} />
           </div>
         )}
@@ -162,11 +171,12 @@ export function DataSettingsPanel({ session, onSessionChanged, onMailPreferences
   )
 }
 
-function SectionPicker({ value, available, onChange, t }: {
+function SectionPicker({ value, available, onChange, t, showAi }: {
   value: MigrationSections
   available?: MigrationSections
   onChange: (value: MigrationSections) => void
   t: (key: MessageKey, values?: Record<string, string | number>) => string
+  showAi: boolean
 }) {
   const sections: Array<[keyof MigrationSections, MessageKey, MessageKey]> = [
     ["profile", "profileAndAvatar", "profileAndAvatarDescription"],
@@ -174,10 +184,12 @@ function SectionPicker({ value, available, onChange, t }: {
     ["notifications", "notificationConfiguration", "notificationConfigurationDescription"],
     ["cleanup", "retentionAndCleanupRules", "retentionAndCleanupRulesDescription"],
     ["preferences", "mailPreferencesAndSignatures", "mailPreferencesAndSignaturesDescription"],
+    ["ai", "aiConfiguration", "aiConfigurationDescription"],
+    ["calendar", "calendarConfiguration", "calendarConfigurationDescription"],
   ]
   return (
     <div className="settings-section-picker">
-      {sections.map(([key, label, description]) => {
+      {sections.filter(([key]) => key !== "ai" || showAi).map(([key, label, description]) => {
         const enabled = available?.[key] ?? true
         return (
           <CheckboxInput
@@ -195,5 +207,5 @@ function SectionPicker({ value, available, onChange, t }: {
 }
 
 function hasSection(sections: MigrationSections) {
-  return sections.profile || sections.mailAccounts || sections.notifications || sections.cleanup || sections.preferences
+  return sections.profile || sections.mailAccounts || sections.notifications || sections.cleanup || sections.preferences || sections.ai || sections.calendar
 }

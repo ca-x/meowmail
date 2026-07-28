@@ -17,12 +17,14 @@ use uuid::Uuid;
 use crate::{
     AppState,
     accounts::AccountRepository,
+    ai::{AiRepository, AiService},
     auth::{MutationSession, require_session},
     cleanup::{CleanupRepository, RuleOutcome},
     contacts::ContactRepository,
     error::AppError,
     mail::{connect_imap_session, delete_imap_uid_set, parse_message},
     preferences::{MailPreferences, PreferencesRepository},
+    users::UserRepository,
 };
 
 use super::repository::{
@@ -463,6 +465,7 @@ async fn sync_account_inner(
         )
         .await;
     }
+    automatic_failures += run_auto_label_actions(&state, user_id, account.id).await;
     let cached_cleanup = cleanup
         .apply_cached_rules(
             user_id,
@@ -502,6 +505,84 @@ async fn sync_account_inner(
         automatic_failures,
         synced_at,
     }))
+}
+
+async fn run_auto_label_actions(state: &AppState, user_id: Uuid, account_id: Uuid) -> u32 {
+    let Ok(user) = UserRepository::new(state.db.clone()).get(user_id).await else {
+        return 1;
+    };
+    if !user.ai_enabled {
+        return 0;
+    }
+    let repository = AiRepository::new(state.db.clone(), state.vault.clone());
+    let Ok(rules) = repository
+        .enabled_auto_label_rules_for_account(user_id, account_id)
+        .await
+    else {
+        return 1;
+    };
+    if rules.is_empty() {
+        return 0;
+    }
+    let Ok(messages) = MessageRepository::new(state.db.clone())
+        .list(
+            user_id,
+            MessageFilter {
+                account_id: Some(account_id),
+                folder: "INBOX".into(),
+                unread: false,
+                starred: false,
+                has_attachment: false,
+                query: None,
+                limit: 40,
+            },
+        )
+        .await
+    else {
+        return 1;
+    };
+    let service = AiService::new(repository.clone());
+    let mut failures = 0_u32;
+    for summary in messages.into_iter().take(20) {
+        let Ok(detail) = MessageRepository::new(state.db.clone())
+            .get(user_id, summary.id)
+            .await
+        else {
+            failures += 1;
+            continue;
+        };
+        for rule in &rules {
+            let Ok(labels) = repository.labels_by_ids(user_id, &rule.label_ids).await else {
+                failures += 1;
+                continue;
+            };
+            match service
+                .classify_message(
+                    user_id,
+                    rule.provider_id,
+                    &detail,
+                    &labels,
+                    &rule.instructions,
+                )
+                .await
+            {
+                Ok(label_ids) => {
+                    if let Err(error) = repository
+                        .apply_labels(user_id, detail.summary.id, &label_ids)
+                        .await
+                    {
+                        tracing::warn!(error = ?error, "auto-label apply failed");
+                        failures += 1;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(error = ?error, "auto-label classification failed");
+                    failures += 1;
+                }
+            }
+        }
+    }
+    failures
 }
 
 fn sync_sequence_start(exists: u32, limit: Option<u32>) -> u32 {

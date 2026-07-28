@@ -57,6 +57,7 @@ impl UserRepository {
             pin_hash: Set(None),
             avatar_mime: Set(None),
             avatar_data: Set(None),
+            ai_enabled: Set(false),
             created_at: Set(now),
             updated_at: Set(now),
             last_login_at: Set(None),
@@ -169,6 +170,7 @@ impl UserRepository {
             pin_hash: Set(None),
             avatar_mime: Set(None),
             avatar_data: Set(None),
+            ai_enabled: Set(false),
             created_at: Set(now),
             updated_at: Set(now),
             last_login_at: Set(Some(now)),
@@ -306,6 +308,13 @@ impl UserRepository {
         PublicUser::try_from(active.update(self.db.connection()).await?)
     }
 
+    pub async fn set_ai_enabled(&self, id: Uuid, enabled: bool) -> Result<PublicUser, AppError> {
+        let mut active = self.get_model(id).await?.into_active_model();
+        active.ai_enabled = Set(enabled);
+        active.updated_at = Set(OffsetDateTime::now_utc().unix_timestamp());
+        PublicUser::try_from(active.update(self.db.connection()).await?)
+    }
+
     pub async fn verify_pin(&self, id: Uuid, supplied: &str) -> Result<bool, AppError> {
         Ok(self
             .get_model(id)
@@ -335,6 +344,7 @@ impl TryFrom<user::Model> for PublicUser {
             has_password: model.password_hash.is_some(),
             has_pin: model.pin_hash.is_some(),
             has_avatar: model.avatar_data.is_some(),
+            ai_enabled: model.ai_enabled,
             updated_at: model.updated_at,
         })
     }

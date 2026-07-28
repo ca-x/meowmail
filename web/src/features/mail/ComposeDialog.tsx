@@ -2,16 +2,15 @@ import { EmailEditor, type EmailEditorRef } from "@react-email/editor"
 import { Button } from "@astryxdesign/core/Button"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput"
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog"
 import { IconButton } from "@astryxdesign/core/IconButton"
-import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
+import { Layout, LayoutContent, LayoutFooter, LayoutHeader } from "@astryxdesign/core/Layout"
 import { Selector } from "@astryxdesign/core/Selector"
 import { Token } from "@astryxdesign/core/Token"
 import { Tokenizer } from "@astryxdesign/core/Tokenizer"
 import { useToast } from "@astryxdesign/core/Toast"
 import { createStaticSource, type SearchableItem } from "@astryxdesign/core/Typeahead"
-import { AtSign, Clock3, FilePenLine, FileText, Paperclip, Send, Trash2, UserRound } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type FormEvent } from "react"
+import { ArrowLeft, Clock3, FilePenLine, FileText, MailPlus, Paperclip, Send, Trash2, UserRound, WandSparkles } from "lucide-react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type FormEvent } from "react"
 
 import { api } from "../../app/api"
 import type { ComposeAttachmentInput, Contact, MailAccount, MailPreferences, Signature } from "../../app/types"
@@ -33,18 +32,22 @@ export interface ComposeDraft {
   scheduledAt?: number | null
 }
 
-interface RecipientItem extends SearchableItem<{ email: string; name?: string; source: "contact" | "manual" }> {}
+interface RecipientItem extends SearchableItem<{ email: string; name?: string; aliases?: string[]; source: "contact" | "manual" }> {}
 
-export function ComposeDialog({ isOpen = true, accounts, activeAccountId, preferences, draft, onClose, onSent, onDraftSaved }: {
-  isOpen?: boolean
+export interface ComposeWorkspaceRef {
+  requestClose: (options?: { restoreFocus?: boolean }) => Promise<boolean>
+}
+
+export const ComposeDialog = forwardRef<ComposeWorkspaceRef, {
   accounts: MailAccount[]
   activeAccountId: string | null
   preferences: MailPreferences
+  aiEnabled?: boolean
   draft?: ComposeDraft | null
-  onClose: () => void
+  onClose: (restoreFocus?: boolean) => void
   onSent: () => void
   onDraftSaved?: (scheduled: boolean) => void
-}) {
+}>(function ComposeDialog({ accounts, activeAccountId, preferences, aiEnabled = false, draft, onClose, onSent, onDraftSaved }, ref) {
   const { locale, t } = useI18n()
   const showToast = useToast()
   const discardDialog = useImperativeConfirmDialog()
@@ -86,7 +89,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
     scheduled: Boolean(draft?.scheduledAt),
     scheduledAt: initialScheduledAt,
   }))
-  const [busy, setBusy] = useState<"send" | "draft" | null>(null)
+  const [busy, setBusy] = useState<"send" | "draft" | "ai" | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const selectedAccount = accounts.find((account) => account.id === accountId)
   const selectedSignature = signatures.find((signature) => signature.id === signatureId) || null
@@ -114,6 +117,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
       keywords: (item) => [
         item.auxiliaryData?.email || "",
         item.auxiliaryData?.name || "",
+        ...(item.auxiliaryData?.aliases || []),
       ],
     }),
     [contacts],
@@ -124,7 +128,6 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
   )
 
   useEffect(() => {
-    if (!isOpen) return
     setAccountId(defaultAccount?.id || "")
     setTo(recipientItems(draft?.to || ""))
     setCc(recipientItems(draft?.cc || ""))
@@ -154,13 +157,13 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
       scheduled: nextScheduled,
       scheduledAt: nextScheduledAt,
     }))
-  }, [defaultAccount?.id, draft, isOpen])
+  }, [defaultAccount?.id, draft])
 
-  const requestClose = useCallback(async () => {
-    if (busyRef.current) return
+  const requestClose = useCallback(async (restoreFocus = true) => {
+    if (busyRef.current) return false
     if (!dirty) {
-      onClose()
-      return
+      onClose(restoreFocus)
+      return true
     }
     const confirmed = await discardDialog.confirm({
       title: t("discardDraftTitle"),
@@ -169,23 +172,26 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
       actionLabel: t("discard"),
       actionVariant: "destructive",
     })
-    if (confirmed) onClose()
+    if (confirmed) onClose(restoreFocus)
+    return confirmed
   }, [dirty, discardDialog, onClose, t])
 
+  useImperativeHandle(ref, () => ({
+    requestClose: (options) => requestClose(options?.restoreFocus ?? true),
+  }), [requestClose])
+
   useEffect(() => {
-    if (!isOpen) return
     api.signatures().then(setSignatures).catch(() => setSignatures([]))
     api.contacts(new URLSearchParams({ limit: "100" })).then(setContacts).catch(() => setContacts([]))
-  }, [isOpen])
+  }, [])
 
   useEffect(() => {
-    if (!isOpen || draft?.id) return
+    if (draft?.id) return
     const next = draft?.signatureId || selectedAccount?.signatureId || "none"
     setSignatureId((current) => current === "none" || !signatures.some((signature) => signature.id === current) ? next : current)
-  }, [draft?.id, draft?.signatureId, isOpen, selectedAccount?.signatureId, signatures])
+  }, [draft?.id, draft?.signatureId, selectedAccount?.signatureId, signatures])
 
   useEffect(() => {
-    if (!isOpen) return
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape" || event.defaultPrevented || busyRef.current) return
       event.preventDefault()
@@ -193,7 +199,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [isOpen, requestClose])
+  }, [requestClose])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -288,33 +294,53 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
     }
   }
 
+  async function polishBody() {
+    if (!aiEnabled || !bodyText.trim()) return
+    busyRef.current = true
+    setBusy("ai")
+    try {
+      const result = await api.polishText({ text: bodyText })
+      editorRef.current?.editor?.commands.setContent(paragraphsToHtml(result.text))
+      setBodyText(result.text)
+      showToast({ body: t("emailPolished"), type: "info", uniqueID: "compose-polish-success", collisionBehavior: "overwrite" })
+    } catch {
+      showToast({ body: t("genericError"), type: "error", uniqueID: "compose-polish-error", collisionBehavior: "overwrite" })
+    } finally {
+      busyRef.current = false
+      setBusy(null)
+    }
+  }
+
   return (
     <>
-      <Dialog
-        className="compose-dialog"
-        isOpen={isOpen}
-        onOpenChange={(open) => { if (!open) void requestClose() }}
-        purpose="form"
-        width={860}
-        maxHeight="92dvh"
-        padding={0}
-        aria-label={t("compose")}
-      >
+      <section className="compose-workspace" aria-labelledby="compose-workspace-title">
         <form className="compose-form" onSubmit={submit}>
           <Layout
-            className="compose-dialog-layout"
+            className="compose-workspace-layout"
             height="fill"
-            padding={4}
+            padding={0}
             header={
-              <DialogHeader
-                title={t("compose")}
-                startContent={<span className="compose-dialog-icon"><AtSign aria-hidden="true" /></span>}
-                onOpenChange={busy ? undefined : (open) => { if (!open) void requestClose() }}
-                hasDivider
-              />
+              <LayoutHeader className="compose-workspace-header" padding={0} hasDivider>
+                <div className="compose-workspace-header-inner">
+                  <IconButton
+                    label={t("back")}
+                    icon={<ArrowLeft aria-hidden="true" />}
+                    variant="ghost"
+                    isDisabled={Boolean(busy)}
+                    onClick={() => void requestClose()}
+                  />
+                  <span className="compose-workspace-icon"><MailPlus aria-hidden="true" /></span>
+                  <div className="compose-workspace-heading">
+                    <h1 id="compose-workspace-title">{t("compose")}</h1>
+                    <p title={selectedAccount?.email || t("from")}>
+                      {draft?.id ? `${t("drafts")} · ` : ""}{selectedAccount?.email || t("from")}
+                    </p>
+                  </div>
+                </div>
+              </LayoutHeader>
             }
             content={
-              <LayoutContent className="compose-dialog-content" padding={0} isScrollable>
+              <LayoutContent className="compose-workspace-content" padding={0} isScrollable>
                 <div className="compose-fields">
                   <Selector
                     label={t("from")}
@@ -365,7 +391,20 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
                   <section className="compose-editor-shell" style={editorStyle} aria-label={t("message")}>
                     <div className="compose-editor-label">
                       <span>{t("message")} · {t("required")}</span>
-                      <small>{t("richTextEditorHint")}</small>
+                      <span className="compose-editor-tools">
+                        <small>{t("richTextEditorHint")}</small>
+                        {aiEnabled && (
+                          <Button
+                            label={busy === "ai" ? t("polishingEmail") : t("polishEmail")}
+                            icon={<WandSparkles aria-hidden="true" />}
+                            variant="ghost"
+                            size="sm"
+                            isLoading={busy === "ai"}
+                            isDisabled={Boolean(busy) || !bodyText.trim()}
+                            onClick={() => void polishBody()}
+                          />
+                        )}
+                      </span>
                     </div>
                     <EmailEditor
                       key={bodyRevision}
@@ -430,46 +469,47 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
               </LayoutContent>
             }
             footer={
-              <LayoutFooter className="compose-dialog-footer" padding={3} hasDivider>
-                <span className="compose-attachment-action">
-                  <input ref={attachmentInputRef} type="file" multiple onChange={(event) => void addAttachments(event)} />
-                  <IconButton
-                    label={t("addAttachment")}
-                    icon={<Paperclip aria-hidden="true" />}
-                    variant="ghost"
-                    isDisabled={Boolean(busy)}
-                    tooltip={t("addAttachment")}
-                    onClick={() => attachmentInputRef.current?.click()}
-                  />
-                </span>
-                <span className="compose-dialog-actions">
-                  <Button label={t("cancel")} variant="secondary" isDisabled={Boolean(busy)} onClick={() => void requestClose()} />
-                  <Button
-                    label={busy === "draft" ? t("saving") : scheduled ? t("saveScheduledDraft") : t("saveDraft")}
-                    icon={<FilePenLine aria-hidden="true" />}
-                    variant="secondary"
-                    isLoading={busy === "draft"}
-                    isDisabled={Boolean(busy) || !accountId || (scheduled && !scheduledAt)}
-                    onClick={() => void saveDraft()}
-                  />
-                  <Button
-                    label={busy === "send" ? t("sending") : t("send")}
-                    icon={<Send aria-hidden="true" />}
-                    variant="primary"
-                    type="submit"
-                    isLoading={busy === "send"}
-                    isDisabled={Boolean(busy) || !accountId || !to.length || !bodyText.trim()}
-                  />
-                </span>
+              <LayoutFooter className="compose-workspace-footer" padding={0} hasDivider>
+                <div className="compose-workspace-footer-inner">
+                  <span className="compose-attachment-action">
+                    <input ref={attachmentInputRef} type="file" multiple onChange={(event) => void addAttachments(event)} />
+                    <IconButton
+                      label={t("addAttachment")}
+                      icon={<Paperclip aria-hidden="true" />}
+                      variant="ghost"
+                      isDisabled={Boolean(busy)}
+                      tooltip={t("addAttachment")}
+                      onClick={() => attachmentInputRef.current?.click()}
+                    />
+                  </span>
+                  <span className="compose-workspace-actions">
+                    <Button
+                      label={busy === "draft" ? t("saving") : scheduled ? t("saveScheduledDraft") : t("saveDraft")}
+                      icon={<FilePenLine aria-hidden="true" />}
+                      variant="secondary"
+                      isLoading={busy === "draft"}
+                      isDisabled={Boolean(busy) || !accountId || (scheduled && !scheduledAt)}
+                      onClick={() => void saveDraft()}
+                    />
+                    <Button
+                      label={busy === "send" ? t("sending") : t("send")}
+                      icon={<Send aria-hidden="true" />}
+                      variant="primary"
+                      type="submit"
+                      isLoading={busy === "send"}
+                      isDisabled={Boolean(busy) || !accountId || !to.length || !bodyText.trim()}
+                    />
+                  </span>
+                </div>
               </LayoutFooter>
             }
           />
         </form>
-      </Dialog>
+      </section>
       {discardDialog.element}
     </>
   )
-}
+})
 
 function configureEditorDom(ref: EmailEditorRef, label: string) {
   const element = ref.editor?.view.dom
@@ -622,7 +662,7 @@ function contactItems(contacts: Contact[]): RecipientItem[] {
   return contacts.map((contact) => ({
     id: contact.email,
     label: contact.displayName === contact.email ? contact.email : `${contact.displayName} <${contact.email}>`,
-    auxiliaryData: { email: contact.email, name: contact.displayName, source: "contact" },
+    auxiliaryData: { email: contact.email, name: contact.displayName, aliases: contact.searchAliases, source: "contact" },
   }))
 }
 
@@ -635,6 +675,7 @@ function normalizeRecipientItem(item: RecipientItem): RecipientItem {
     auxiliaryData: {
       email: email.toLowerCase(),
       name: item.auxiliaryData?.name,
+      aliases: item.auxiliaryData?.aliases,
       source: item.auxiliaryData?.source || "manual",
     },
   }

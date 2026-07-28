@@ -47,7 +47,7 @@ export function AccountIdentityFields({ input, isEditing, onChange }: AccountIde
       />
       <PasswordField
         label={t("password")}
-        description={isEditing ? t("passwordKeep") : undefined}
+        labelTooltip={isEditing ? t("passwordKeep") : undefined}
         placeholder={isEditing ? t("passwordKeep") : t("passwordPlaceholder")}
         value={input.password || ""}
         onChange={(password) => onChange({ ...input, password })}
@@ -100,9 +100,9 @@ export function AccountProxySettings({ input, onChange }: Pick<AccountIdentityFi
   )
 }
 
-function PasswordField({ label, description, placeholder, value, onChange, required = false, autoComplete }: {
+function PasswordField({ label, labelTooltip, placeholder, value, onChange, required = false, autoComplete }: {
   label: string
-  description?: string
+  labelTooltip?: string
   placeholder?: string
   value: string
   onChange: (value: string) => void
@@ -110,18 +110,16 @@ function PasswordField({ label, description, placeholder, value, onChange, requi
   autoComplete?: string
 }) {
   return (
-    <label className="account-native-field">
-      <span>{label}</span>
-      {description && <small>{description}</small>}
-      <input
-        type="password"
-        value={value}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        onChange={(event) => onChange(event.target.value)}
-        required={required}
-      />
-    </label>
+    <TextInput
+      {...{ autoComplete, required }}
+      type="password"
+      label={label}
+      labelTooltip={labelTooltip}
+      value={value}
+      placeholder={placeholder}
+      onChange={onChange}
+      width="100%"
+    />
   )
 }
 

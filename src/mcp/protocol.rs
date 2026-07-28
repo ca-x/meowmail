@@ -280,6 +280,10 @@ fn public_tool_error(error: &AppError) -> &'static str {
         AppError::Mail(_) => {
             "The mail server operation failed; check the draft status before retrying"
         }
+        AppError::Ai(_) => "The AI service request failed; check the provider settings and retry",
+        AppError::Calendar(_) => {
+            "The calendar service operation failed; check the CalDAV account settings and retry"
+        }
         AppError::RateLimited => "The MCP request rate limit was exceeded",
         AppError::Conflict => {
             "The mail resource changed or its delivery status is uncertain; refresh before retrying"

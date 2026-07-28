@@ -15,7 +15,262 @@ impl MigratorTrait for Migrator {
             Box::new(MailExperienceMigration),
             Box::new(ContactsDraftSchedulingMigration),
             Box::new(DraftAttachmentsMigration),
+            Box::new(AiCalendarMigration),
+            Box::new(AiAccessMigration),
         ]
+    }
+}
+
+struct AiAccessMigration;
+
+impl MigrationName for AiAccessMigration {
+    fn name(&self) -> &str {
+        "m20260728_000011_ai_access"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for AiAccessMigration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                ALTER TABLE users ADD COLUMN ai_enabled BOOLEAN NOT NULL DEFAULT 0;
+
+                CREATE TABLE auto_label_subscriptions (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    name VARCHAR(120) NOT NULL,
+                    url TEXT NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    last_synced_at BIGINT,
+                    last_error TEXT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_auto_label_subscription_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(user_id, name)
+                );
+                CREATE INDEX idx_auto_label_subscriptions_user
+                    ON auto_label_subscriptions(user_id, enabled, created_at);
+
+                ALTER TABLE auto_label_rules ADD COLUMN source_subscription_id TEXT;
+                CREATE INDEX idx_auto_label_rules_subscription
+                    ON auto_label_rules(user_id, source_subscription_id, created_at);
+                "#,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                DROP INDEX IF EXISTS idx_auto_label_rules_subscription;
+                ALTER TABLE auto_label_rules DROP COLUMN source_subscription_id;
+                DROP INDEX IF EXISTS idx_auto_label_subscriptions_user;
+                DROP TABLE IF EXISTS auto_label_subscriptions;
+                ALTER TABLE users DROP COLUMN ai_enabled;
+                "#,
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+struct AiCalendarMigration;
+
+impl MigrationName for AiCalendarMigration {
+    fn name(&self) -> &str {
+        "m20260728_000010_ai_calendar"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for AiCalendarMigration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                CREATE TABLE ai_providers (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    name VARCHAR(120) NOT NULL,
+                    provider_kind TEXT NOT NULL CHECK(provider_kind IN ('openai','claude','gemini')),
+                    api_type TEXT NOT NULL CHECK(api_type IN ('chat','responses','messages','generateContent')),
+                    model VARCHAR(160) NOT NULL,
+                    base_url TEXT,
+                    api_key_cipher TEXT,
+                    proxy_kind TEXT NOT NULL DEFAULT 'direct' CHECK(proxy_kind IN ('direct','http','socks5')),
+                    proxy_host TEXT,
+                    proxy_port INTEGER,
+                    proxy_username TEXT,
+                    proxy_password_cipher TEXT,
+                    is_default BOOLEAN NOT NULL DEFAULT 0,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_ai_provider_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(user_id, name)
+                );
+                CREATE INDEX idx_ai_providers_user_default
+                    ON ai_providers(user_id, enabled, is_default, created_at);
+
+                CREATE TABLE labels (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    name VARCHAR(80) NOT NULL,
+                    color VARCHAR(40) NOT NULL,
+                    is_auto BOOLEAN NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_label_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(user_id, name)
+                );
+                CREATE INDEX idx_labels_user_auto
+                    ON labels(user_id, is_auto, name COLLATE NOCASE);
+
+                CREATE TABLE message_labels (
+                    message_id TEXT NOT NULL,
+                    label_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    PRIMARY KEY(message_id, label_id),
+                    CONSTRAINT fk_message_label_message FOREIGN KEY(message_id)
+                        REFERENCES messages(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    CONSTRAINT fk_message_label_label FOREIGN KEY(label_id)
+                        REFERENCES labels(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    CONSTRAINT fk_message_label_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE
+                );
+                CREATE INDEX idx_message_labels_user_label
+                    ON message_labels(user_id, label_id, created_at);
+
+                CREATE TABLE auto_label_rules (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    account_id TEXT,
+                    provider_id TEXT,
+                    name VARCHAR(120) NOT NULL,
+                    label_ids_json TEXT NOT NULL DEFAULT '[]',
+                    instructions TEXT NOT NULL DEFAULT '',
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    apply_automatically BOOLEAN NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_auto_label_rule_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    CONSTRAINT fk_auto_label_rule_account FOREIGN KEY(account_id)
+                        REFERENCES mail_accounts(id) ON UPDATE CASCADE ON DELETE SET NULL,
+                    CONSTRAINT fk_auto_label_rule_provider FOREIGN KEY(provider_id)
+                        REFERENCES ai_providers(id) ON UPDATE CASCADE ON DELETE SET NULL
+                );
+                CREATE INDEX idx_auto_label_rules_user
+                    ON auto_label_rules(user_id, enabled, created_at);
+
+                CREATE TABLE calendar_accounts (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    name VARCHAR(120) NOT NULL,
+                    base_url TEXT NOT NULL,
+                    username VARCHAR(320) NOT NULL,
+                    password_cipher TEXT NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    last_synced_at BIGINT,
+                    last_error TEXT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_calendar_account_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(user_id, name)
+                );
+                CREATE INDEX idx_calendar_accounts_user
+                    ON calendar_accounts(user_id, enabled, created_at);
+
+                CREATE TABLE calendars (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    display_name VARCHAR(160) NOT NULL,
+                    color VARCHAR(40) NOT NULL,
+                    remote_href TEXT NOT NULL,
+                    sync_token TEXT,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_calendar_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    CONSTRAINT fk_calendar_account FOREIGN KEY(account_id)
+                        REFERENCES calendar_accounts(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(account_id, remote_href)
+                );
+                CREATE INDEX idx_calendars_user_enabled
+                    ON calendars(user_id, enabled, display_name COLLATE NOCASE);
+
+                CREATE TABLE calendar_events (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    user_id TEXT NOT NULL,
+                    calendar_id TEXT NOT NULL,
+                    uid VARCHAR(255) NOT NULL,
+                    summary TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    location TEXT NOT NULL DEFAULT '',
+                    starts_at BIGINT NOT NULL,
+                    ends_at BIGINT NOT NULL,
+                    all_day BOOLEAN NOT NULL DEFAULT 0,
+                    timezone TEXT,
+                    remote_href TEXT,
+                    etag TEXT,
+                    ics TEXT NOT NULL DEFAULT '',
+                    deleted BOOLEAN NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT fk_calendar_event_user FOREIGN KEY(user_id)
+                        REFERENCES users(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    CONSTRAINT fk_calendar_event_calendar FOREIGN KEY(calendar_id)
+                        REFERENCES calendars(id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    UNIQUE(calendar_id, uid)
+                );
+                CREATE INDEX idx_calendar_events_user_range
+                    ON calendar_events(user_id, deleted, starts_at, ends_at);
+                CREATE INDEX idx_calendar_events_calendar_href
+                    ON calendar_events(calendar_id, remote_href);
+                "#,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                DROP INDEX IF EXISTS idx_calendar_events_calendar_href;
+                DROP INDEX IF EXISTS idx_calendar_events_user_range;
+                DROP TABLE IF EXISTS calendar_events;
+                DROP INDEX IF EXISTS idx_calendars_user_enabled;
+                DROP TABLE IF EXISTS calendars;
+                DROP INDEX IF EXISTS idx_calendar_accounts_user;
+                DROP TABLE IF EXISTS calendar_accounts;
+                DROP INDEX IF EXISTS idx_auto_label_rules_user;
+                DROP TABLE IF EXISTS auto_label_rules;
+                DROP INDEX IF EXISTS idx_message_labels_user_label;
+                DROP TABLE IF EXISTS message_labels;
+                DROP INDEX IF EXISTS idx_labels_user_auto;
+                DROP TABLE IF EXISTS labels;
+                DROP INDEX IF EXISTS idx_ai_providers_user_default;
+                DROP TABLE IF EXISTS ai_providers;
+                "#,
+            )
+            .await?;
+        Ok(())
     }
 }
 

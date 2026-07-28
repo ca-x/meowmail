@@ -12,13 +12,19 @@ use uuid::Uuid;
 
 use crate::{
     accounts::{AccountIdentityInput, AccountInput, AccountRepository, ProxyInput},
+    ai::{
+        AiApiType, AiProviderInput, AiProviderKind, AiRepository, AutoLabelRuleInput,
+        AutoLabelSubscriptionInput, LabelInput,
+    },
+    calendar::{CalendarAccountInput, CalendarRepository},
     cleanup::{
         CleanupRepository, CleanupRuleInput, MailSettings, RuleAction, RuleCondition, RuleMatchMode,
     },
     db::{
         Database,
         entities::{
-            cleanup_rule, mail_account, mail_setting, notification_setting, user, user_identity,
+            ai_provider, auto_label_rule, auto_label_subscription, calendar_account, cleanup_rule,
+            label, mail_account, mail_setting, notification_setting, user, user_identity,
         },
     },
     error::AppError,
@@ -37,6 +43,10 @@ const MAX_ARCHIVE_USERS: usize = 500;
 const MAX_ACCOUNTS_PER_USER: usize = 200;
 const MAX_RULES_PER_USER: usize = 2_000;
 const MAX_SIGNATURES_PER_USER: usize = 200;
+const MAX_AI_PROVIDERS_PER_USER: usize = 50;
+const MAX_LABELS_PER_USER: usize = 500;
+const MAX_AUTO_LABEL_SUBSCRIPTIONS_PER_USER: usize = 100;
+const MAX_CALENDAR_ACCOUNTS_PER_USER: usize = 100;
 const MAX_IDENTITIES_PER_USER: usize = 32;
 const MAX_AVATAR_SIZE: usize = 512 * 1024;
 
@@ -50,17 +60,31 @@ pub enum MigrationScope {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct MigrationSections {
+    #[serde(default)]
     pub profile: bool,
+    #[serde(default)]
     pub mail_accounts: bool,
+    #[serde(default)]
     pub notifications: bool,
+    #[serde(default)]
     pub cleanup: bool,
     #[serde(default)]
     pub preferences: bool,
+    #[serde(default)]
+    pub ai: bool,
+    #[serde(default)]
+    pub calendar: bool,
 }
 
 impl MigrationSections {
     fn any(&self) -> bool {
-        self.profile || self.mail_accounts || self.notifications || self.cleanup || self.preferences
+        self.profile
+            || self.mail_accounts
+            || self.notifications
+            || self.cleanup
+            || self.preferences
+            || self.ai
+            || self.calendar
     }
 }
 
@@ -98,6 +122,11 @@ pub struct ImportReport {
     pub rules_imported: u32,
     pub signatures_imported: u32,
     pub preferences_imported: u32,
+    pub ai_providers_imported: u32,
+    pub labels_imported: u32,
+    pub auto_label_rules_imported: u32,
+    pub auto_label_subscriptions_imported: u32,
+    pub calendar_accounts_imported: u32,
     pub conflicts: Vec<String>,
 }
 
@@ -126,6 +155,10 @@ struct ArchiveUser {
     cleanup_rules: Option<Vec<ArchiveCleanupRule>>,
     #[serde(default)]
     preferences: Option<ArchivePreferences>,
+    #[serde(default)]
+    ai: Option<ArchiveAi>,
+    #[serde(default)]
+    calendar: Option<ArchiveCalendar>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -192,6 +225,62 @@ struct ArchiveAccountIdentity {
     display_name: String,
     signature_name: Option<String>,
     is_default: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveAi {
+    #[serde(default)]
+    enabled: bool,
+    providers: Vec<ArchiveAiProvider>,
+    labels: Vec<ArchiveLabel>,
+    auto_label_rules: Vec<ArchiveAutoLabelRule>,
+    #[serde(default)]
+    auto_label_subscriptions: Vec<AutoLabelSubscriptionInput>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveAiProvider {
+    name: String,
+    provider_kind: AiProviderKind,
+    api_type: AiApiType,
+    model: String,
+    base_url: Option<String>,
+    api_key: Option<String>,
+    proxy: ProxyInput,
+    is_default: bool,
+    enabled: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveLabel {
+    name: String,
+    color: String,
+    is_auto: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveAutoLabelRule {
+    account_email: Option<String>,
+    provider_name: Option<String>,
+    name: String,
+    label_names: Vec<String>,
+    instructions: String,
+    enabled: bool,
+    apply_automatically: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveCalendar {
+    accounts: Vec<ArchiveCalendarAccount>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveCalendarAccount {
+    name: String,
+    base_url: String,
+    username: String,
+    password: String,
+    enabled: bool,
 }
 
 #[derive(Clone)]
@@ -314,6 +403,11 @@ impl MigrationService {
             rules_imported: 0,
             signatures_imported: 0,
             preferences_imported: 0,
+            ai_providers_imported: 0,
+            labels_imported: 0,
+            auto_label_rules_imported: 0,
+            auto_label_subscriptions_imported: 0,
+            calendar_accounts_imported: 0,
             conflicts: Vec::new(),
         };
         if request.archive.scope == MigrationScope::Mine {
@@ -530,6 +624,149 @@ impl MigrationService {
         } else {
             None
         };
+        let ai = if sections.ai {
+            let providers = ai_provider::Entity::find()
+                .filter(ai_provider::Column::UserId.eq(&model.id))
+                .order_by_asc(ai_provider::Column::CreatedAt)
+                .all(self.db.connection())
+                .await?;
+            let labels = label::Entity::find()
+                .filter(label::Column::UserId.eq(&model.id))
+                .order_by_asc(label::Column::CreatedAt)
+                .all(self.db.connection())
+                .await?;
+            let provider_names = providers
+                .iter()
+                .map(|provider| (provider.id.clone(), provider.name.clone()))
+                .collect::<HashMap<_, _>>();
+            let label_names = labels
+                .iter()
+                .map(|label| (label.id.clone(), label.name.clone()))
+                .collect::<HashMap<_, _>>();
+            let rules = auto_label_rule::Entity::find()
+                .filter(auto_label_rule::Column::UserId.eq(&model.id))
+                .filter(auto_label_rule::Column::SourceSubscriptionId.is_null())
+                .order_by_asc(auto_label_rule::Column::CreatedAt)
+                .all(self.db.connection())
+                .await?
+                .into_iter()
+                .map(|rule| {
+                    let label_ids = serde_json::from_str::<Vec<Uuid>>(&rule.label_ids_json)
+                        .map_err(AppError::internal)?;
+                    Ok::<ArchiveAutoLabelRule, AppError>(ArchiveAutoLabelRule {
+                        account_email: rule
+                            .account_id
+                            .as_ref()
+                            .and_then(|id| account_emails.get(id).cloned()),
+                        provider_name: rule
+                            .provider_id
+                            .as_ref()
+                            .and_then(|id| provider_names.get(id).cloned()),
+                        name: rule.name,
+                        label_names: label_ids
+                            .iter()
+                            .filter_map(|id| label_names.get(&id.to_string()).cloned())
+                            .collect(),
+                        instructions: rule.instructions,
+                        enabled: rule.enabled,
+                        apply_automatically: rule.apply_automatically,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let subscriptions = auto_label_subscription::Entity::find()
+                .filter(auto_label_subscription::Column::UserId.eq(&model.id))
+                .order_by_asc(auto_label_subscription::Column::CreatedAt)
+                .all(self.db.connection())
+                .await?
+                .into_iter()
+                .map(|subscription| AutoLabelSubscriptionInput {
+                    name: subscription.name,
+                    url: subscription.url,
+                    enabled: subscription.enabled,
+                })
+                .collect();
+            Some(ArchiveAi {
+                enabled: model.ai_enabled,
+                providers: providers
+                    .into_iter()
+                    .map(|provider| {
+                        Ok::<ArchiveAiProvider, AppError>(ArchiveAiProvider {
+                            name: provider.name,
+                            provider_kind: AiProviderKind::parse(&provider.provider_kind)?,
+                            api_type: AiApiType::parse(&provider.api_type)?,
+                            model: provider.model,
+                            base_url: provider.base_url,
+                            api_key: provider
+                                .api_key_cipher
+                                .as_deref()
+                                .map(|value| {
+                                    self.vault
+                                        .open(value)
+                                        .map(|secret| secret.expose_secret().to_owned())
+                                        .map_err(AppError::internal)
+                                })
+                                .transpose()?,
+                            proxy: ProxyInput {
+                                kind: crate::accounts::ProxyKind::parse(&provider.proxy_kind)?,
+                                host: provider.proxy_host,
+                                port: provider.proxy_port.map(|value| value as u16),
+                                username: provider.proxy_username,
+                                password: provider
+                                    .proxy_password_cipher
+                                    .as_deref()
+                                    .map(|value| {
+                                        self.vault
+                                            .open(value)
+                                            .map(|secret| secret.expose_secret().to_owned())
+                                            .map_err(AppError::internal)
+                                    })
+                                    .transpose()?,
+                            },
+                            is_default: provider.is_default,
+                            enabled: provider.enabled,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                labels: labels
+                    .into_iter()
+                    .map(|label| ArchiveLabel {
+                        name: label.name,
+                        color: label.color,
+                        is_auto: label.is_auto,
+                    })
+                    .collect(),
+                auto_label_rules: rules,
+                auto_label_subscriptions: subscriptions,
+            })
+        } else {
+            None
+        };
+        let calendar = if sections.calendar {
+            Some(ArchiveCalendar {
+                accounts: calendar_account::Entity::find()
+                    .filter(calendar_account::Column::UserId.eq(&model.id))
+                    .order_by_asc(calendar_account::Column::CreatedAt)
+                    .all(self.db.connection())
+                    .await?
+                    .into_iter()
+                    .map(|account| {
+                        Ok::<ArchiveCalendarAccount, AppError>(ArchiveCalendarAccount {
+                            name: account.name,
+                            base_url: account.base_url,
+                            username: account.username,
+                            password: self
+                                .vault
+                                .open(&account.password_cipher)
+                                .map(|secret| secret.expose_secret().to_owned())
+                                .map_err(AppError::internal)?,
+                            enabled: account.enabled,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
+        } else {
+            None
+        };
         Ok(ArchiveUser {
             auth,
             profile,
@@ -538,6 +775,8 @@ impl MigrationService {
             mail_settings,
             cleanup_rules,
             preferences,
+            ai,
+            calendar,
         })
     }
 
@@ -595,6 +834,7 @@ impl MigrationService {
             pin_hash: Set(auth.pin_hash.clone()),
             avatar_mime: Set(None),
             avatar_data: Set(None),
+            ai_enabled: Set(false),
             created_at: Set(now),
             updated_at: Set(now),
             last_login_at: Set(None),
@@ -848,6 +1088,167 @@ impl MigrationService {
             }
             report.preferences_imported += 1;
         }
+        if sections.ai
+            && let Some(ai) = archived.ai
+        {
+            UserRepository::new(self.db.clone())
+                .set_ai_enabled(user_id, ai.enabled)
+                .await?;
+            let repository = AiRepository::new(self.db.clone(), self.vault.clone());
+            let existing_providers = repository.list_providers(user_id).await?;
+            for provider in ai.providers {
+                let input = AiProviderInput {
+                    name: provider.name.clone(),
+                    provider_kind: provider.provider_kind,
+                    api_type: provider.api_type,
+                    model: provider.model,
+                    base_url: provider.base_url,
+                    api_key: provider.api_key,
+                    proxy: provider.proxy,
+                    is_default: provider.is_default,
+                    enabled: provider.enabled,
+                };
+                if let Some(existing) = existing_providers
+                    .iter()
+                    .find(|item| item.name.eq_ignore_ascii_case(&provider.name))
+                {
+                    repository
+                        .update_provider(user_id, existing.id, input)
+                        .await?;
+                } else {
+                    repository.create_provider(user_id, input).await?;
+                }
+                report.ai_providers_imported += 1;
+            }
+            let existing_labels = repository.list_labels(user_id).await?;
+            for archived_label in ai.labels {
+                let input = LabelInput {
+                    name: archived_label.name.clone(),
+                    color: archived_label.color,
+                    is_auto: archived_label.is_auto,
+                };
+                if let Some(existing) = existing_labels
+                    .iter()
+                    .find(|item| item.name.eq_ignore_ascii_case(&archived_label.name))
+                {
+                    repository.update_label(user_id, existing.id, input).await?;
+                } else {
+                    repository.create_label(user_id, input).await?;
+                }
+                report.labels_imported += 1;
+            }
+            let provider_map = repository
+                .list_providers(user_id)
+                .await?
+                .into_iter()
+                .map(|provider| (provider.name.to_ascii_lowercase(), provider.id))
+                .collect::<HashMap<_, _>>();
+            let label_map = repository
+                .list_labels(user_id)
+                .await?
+                .into_iter()
+                .map(|label| (label.name.to_ascii_lowercase(), label.id))
+                .collect::<HashMap<_, _>>();
+            let account_map = accounts
+                .list(user_id)
+                .await?
+                .into_iter()
+                .map(|account| (account.email.to_ascii_lowercase(), account.id))
+                .collect::<HashMap<_, _>>();
+            for rule in ai.auto_label_rules {
+                let account_id = rule
+                    .account_email
+                    .as_ref()
+                    .and_then(|email| account_map.get(&email.to_ascii_lowercase()).copied());
+                if rule.account_email.is_some() && account_id.is_none() {
+                    report.conflicts.push(format!(
+                        "auto-label rule '{}' references a missing mail account",
+                        rule.name
+                    ));
+                    continue;
+                }
+                let provider_id = rule
+                    .provider_name
+                    .as_ref()
+                    .and_then(|name| provider_map.get(&name.to_ascii_lowercase()).copied());
+                if rule.provider_name.is_some() && provider_id.is_none() {
+                    report.conflicts.push(format!(
+                        "auto-label rule '{}' references a missing AI provider",
+                        rule.name
+                    ));
+                    continue;
+                }
+                let label_ids = rule
+                    .label_names
+                    .iter()
+                    .filter_map(|name| label_map.get(&name.to_ascii_lowercase()).copied())
+                    .collect::<Vec<_>>();
+                if label_ids.len() != rule.label_names.len() || label_ids.is_empty() {
+                    report.conflicts.push(format!(
+                        "auto-label rule '{}' references missing labels",
+                        rule.name
+                    ));
+                    continue;
+                }
+                repository
+                    .create_auto_label_rule(
+                        user_id,
+                        AutoLabelRuleInput {
+                            account_id,
+                            provider_id,
+                            name: rule.name,
+                            label_ids,
+                            instructions: rule.instructions,
+                            enabled: rule.enabled,
+                            apply_automatically: rule.apply_automatically,
+                        },
+                    )
+                    .await?;
+                report.auto_label_rules_imported += 1;
+            }
+            let existing_subscriptions = repository.list_auto_label_subscriptions(user_id).await?;
+            for subscription in ai.auto_label_subscriptions {
+                if let Some(existing) = existing_subscriptions
+                    .iter()
+                    .find(|item| item.name.eq_ignore_ascii_case(&subscription.name))
+                {
+                    repository
+                        .update_auto_label_subscription(user_id, existing.id, subscription)
+                        .await?;
+                } else {
+                    repository
+                        .create_auto_label_subscription(user_id, subscription)
+                        .await?;
+                }
+                report.auto_label_subscriptions_imported += 1;
+            }
+        }
+        if sections.calendar
+            && let Some(calendar) = archived.calendar
+        {
+            let repository = CalendarRepository::new(self.db.clone(), self.vault.clone());
+            let existing = repository.list_accounts(user_id).await?;
+            for account in calendar.accounts {
+                let input = CalendarAccountInput {
+                    name: account.name.clone(),
+                    base_url: account.base_url,
+                    username: account.username,
+                    password: Some(account.password),
+                    enabled: account.enabled,
+                };
+                if let Some(existing) = existing
+                    .iter()
+                    .find(|item| item.name.eq_ignore_ascii_case(&account.name))
+                {
+                    repository
+                        .update_account(user_id, existing.id, input)
+                        .await?;
+                } else {
+                    repository.create_account(user_id, input).await?;
+                }
+                report.calendar_accounts_imported += 1;
+            }
+        }
         Ok(())
     }
 }
@@ -880,6 +1281,8 @@ fn validate_section_subset(
         || (requested.notifications && !available.notifications)
         || (requested.cleanup && !available.cleanup)
         || (requested.preferences && !available.preferences)
+        || (requested.ai && !available.ai)
+        || (requested.calendar && !available.calendar)
     {
         return Err(AppError::Validation(
             "selected migration sections are not present in the archive".into(),
@@ -915,6 +1318,8 @@ fn validate_archive_user(
         || (!sections.cleanup
             && (archived.mail_settings.is_some() || archived.cleanup_rules.is_some()))
         || (!sections.preferences && archived.preferences.is_some())
+        || (!sections.ai && archived.ai.is_some())
+        || (!sections.calendar && archived.calendar.is_some())
     {
         return Err(AppError::Validation(
             "migration archive contains data outside its declared sections".into(),
@@ -1015,6 +1420,86 @@ fn validate_archive_user(
                     "imported mail identity is invalid".into(),
                 ));
             }
+        }
+    }
+    if let Some(ai) = archived.ai.as_ref() {
+        if ai.providers.len() > MAX_AI_PROVIDERS_PER_USER
+            || ai.labels.len() > MAX_LABELS_PER_USER
+            || ai.auto_label_subscriptions.len() > MAX_AUTO_LABEL_SUBSCRIPTIONS_PER_USER
+        {
+            return Err(AppError::Validation(
+                "migration archive contains too much AI configuration".into(),
+            ));
+        }
+        for provider in &ai.providers {
+            let mut input = AiProviderInput {
+                name: provider.name.clone(),
+                provider_kind: provider.provider_kind,
+                api_type: provider.api_type,
+                model: provider.model.clone(),
+                base_url: provider.base_url.clone(),
+                api_key: provider.api_key.clone(),
+                proxy: provider.proxy.clone(),
+                is_default: provider.is_default,
+                enabled: provider.enabled,
+            };
+            input.normalize(provider.api_key.is_some())?;
+        }
+        for label in &ai.labels {
+            let mut input = LabelInput {
+                name: label.name.clone(),
+                color: label.color.clone(),
+                is_auto: label.is_auto,
+            };
+            input.normalize()?;
+        }
+        for rule in &ai.auto_label_rules {
+            if rule.name.is_empty()
+                || rule.name.chars().count() > 120
+                || rule.name.chars().any(char::is_control)
+                || rule.label_names.is_empty()
+                || rule.label_names.len() > 12
+                || rule.instructions.len() > 4096
+                || rule.instructions.chars().any(|value| value == '\0')
+                || rule.provider_name.as_ref().is_some_and(|value| {
+                    value.is_empty()
+                        || value.chars().count() > 120
+                        || value.chars().any(char::is_control)
+                })
+                || rule.account_email.as_ref().is_some_and(|value| {
+                    value.len() > 254 || !value.contains('@') || value.chars().any(char::is_control)
+                })
+                || rule.label_names.iter().any(|value| {
+                    value.is_empty()
+                        || value.chars().count() > 80
+                        || value.chars().any(char::is_control)
+                })
+            {
+                return Err(AppError::Validation(
+                    "imported auto-label rule is invalid".into(),
+                ));
+            }
+        }
+        for subscription in &ai.auto_label_subscriptions {
+            let mut input = subscription.clone();
+            input.normalize()?;
+        }
+    }
+    if let Some(calendar) = archived.calendar.as_ref() {
+        if calendar.accounts.len() > MAX_CALENDAR_ACCOUNTS_PER_USER {
+            return Err(AppError::Validation(
+                "migration archive contains too many calendar accounts".into(),
+            ));
+        }
+        for account in &calendar.accounts {
+            let mut input = CalendarAccountInput {
+                name: account.name.clone(),
+                base_url: account.base_url.clone(),
+                username: account.username.clone(),
+                password: Some(account.password.clone()),
+                enabled: account.enabled,
+            };
+            input.normalize(true)?;
         }
     }
     Ok(())

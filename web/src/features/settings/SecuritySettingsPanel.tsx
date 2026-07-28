@@ -2,6 +2,7 @@ import { Badge } from "@astryxdesign/core/Badge"
 import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { Switch } from "@astryxdesign/core/Switch"
+import { TextInput } from "@astryxdesign/core/TextInput"
 import { Bot, Copy, KeyRound, LockKeyhole, RotateCw, ShieldCheck } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
 
@@ -36,7 +37,7 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
   const [confirmPassword, setConfirmPassword] = useState("")
   const [mcpSettings, setMcpSettings] = useState<McpSettings>(defaultMcpSettings)
   const [mcpToken, setMcpToken] = useState<string | null>(null)
-  const [busy, setBusy] = useState<"password" | "pin" | "lock" | "mcp" | null>(null)
+  const [busy, setBusy] = useState<"password" | "pin" | "lock" | "ai" | "mcp" | null>(null)
   const [mcpLoading, setMcpLoading] = useState(true)
 
   useEffect(() => {
@@ -115,6 +116,21 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
       onLocked(next)
     } catch {
       onNotice({ key: "genericError", error: true })
+      setBusy(null)
+    }
+  }
+
+  async function toggleAiAccess(enabled: boolean) {
+    const previous = user
+    setUser({ ...user, aiEnabled: enabled })
+    setBusy("ai")
+    try {
+      publishUser(await api.updateAiAccess(enabled))
+      onNotice({ key: enabled ? "aiAccessEnabled" : "aiAccessDisabled" })
+    } catch {
+      setUser(previous)
+      onNotice({ key: "genericError", error: true })
+    } finally {
       setBusy(null)
     }
   }
@@ -199,19 +215,34 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
         <form className="settings-password-form" onSubmit={savePassword}>
           <div className="settings-password-fields">
             {user.hasPassword && (
-              <label className="settings-native-field">
-                <span>{t("currentPassword")}</span>
-                <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder={t("currentPasswordPlaceholder")} />
-              </label>
+              <TextInput
+                {...{ autoComplete: "current-password" }}
+                type="password"
+                label={t("currentPassword")}
+                value={currentPassword}
+                onChange={setCurrentPassword}
+                placeholder={t("currentPasswordPlaceholder")}
+                width="100%"
+              />
             )}
-            <label className="settings-native-field">
-              <span>{t("newPassword")}</span>
-              <input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder={t("newPasswordPlaceholder")} />
-            </label>
-            <label className="settings-native-field">
-              <span>{t("confirmPassword")}</span>
-              <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder={t("newPasswordPlaceholder")} />
-            </label>
+            <TextInput
+              {...{ autoComplete: "new-password" }}
+              type="password"
+              label={t("newPassword")}
+              value={newPassword}
+              onChange={setNewPassword}
+              placeholder={t("newPasswordPlaceholder")}
+              width="100%"
+            />
+            <TextInput
+              {...{ autoComplete: "new-password" }}
+              type="password"
+              label={t("confirmPassword")}
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              placeholder={t("newPasswordPlaceholder")}
+              width="100%"
+            />
           </div>
           <Button
             label={user.hasPassword ? t("changeLoginPassword") : t("setLoginPassword")}
@@ -228,17 +259,15 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
       <SettingsPanelHeading icon={<ShieldCheck />} title={t("securityAndLock")} description={t("pinLockDescription")} />
       <section className="settings-security-block" aria-label={t("securityAndLock")}>
         <form className="settings-inline-form" onSubmit={savePin}>
-          <label className="settings-native-field">
-            <span>{user.hasPin ? t("changePin") : t("setPin")}</span>
-            <input
-              type="password"
-              inputMode="numeric"
-              autoComplete="new-password"
-              value={pin}
-              onChange={(event) => setPin(event.target.value)}
-              placeholder={t("personalPinPlaceholder")}
-            />
-          </label>
+          <TextInput
+            {...{ autoComplete: "new-password", inputMode: "numeric" }}
+            type="password"
+            label={user.hasPin ? t("changePin") : t("setPin")}
+            value={pin}
+            onChange={setPin}
+            placeholder={t("personalPinPlaceholder")}
+            width="100%"
+          />
           <Button label={t("save")} icon={<KeyRound aria-hidden="true" />} type="submit" variant="secondary" isLoading={busy === "pin"} isDisabled={!pin || busy === "pin"} />
         </form>
         {user.hasPin && (
@@ -247,6 +276,21 @@ export function SecuritySettingsPanel({ isOpen, session, onSessionChanged, onLoc
             <Button label={t("removePin")} variant="ghost" isDisabled={Boolean(busy)} onClick={() => void removePin()} />
           </div>
         )}
+      </section>
+
+      <div className="settings-subsection-divider" />
+      <SettingsPanelHeading icon={<Bot />} title={t("aiAccess")} description={t("aiAccessDescription")} />
+      <section className="settings-security-block" aria-label={t("aiAccess")}>
+        <Switch
+          label={t("enableAiFeatures")}
+          labelTooltip={t("enableAiFeaturesDescription")}
+          value={user.aiEnabled}
+          onChange={(enabled) => void toggleAiAccess(enabled)}
+          isLoading={busy === "ai"}
+          isDisabled={Boolean(busy)}
+          labelSpacing="spread"
+          labelPosition="start"
+        />
       </section>
 
       <div className="settings-subsection-divider" />

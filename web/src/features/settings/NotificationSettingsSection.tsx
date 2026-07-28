@@ -1,5 +1,5 @@
 import { Button } from "@astryxdesign/core/Button"
-import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
+import { Switch } from "@astryxdesign/core/Switch"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { BellRing, Play, Save } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
@@ -55,15 +55,17 @@ export function NotificationSettingsSection({ onNotice }: { onNotice: (notice: S
     <>
       <SettingsPanelHeading icon={<BellRing />} title={t("notifications")} description={t("notificationsDescription")} />
       <form className="settings-notification-block" onSubmit={save}>
-        <CheckboxInput
+        <Switch
           label={t("enableNotifications")}
-          description={t("notificationsDescription")}
+          labelTooltip={t("notificationsDescription")}
           value={settings.enabled}
           onChange={(enabled) => setSettings({ ...settings, enabled })}
+          labelPosition="start"
+          labelSpacing="spread"
         />
         <div className="settings-form-grid">
           <TextInput label={t("messageTemplate")} value={settings.messageTemplate} onChange={(messageTemplate) => setSettings({ ...settings, messageTemplate })} placeholder={t("messageTemplatePlaceholder")} width="100%" />
-          <TextInput className="settings-mono-field" label={t("commandTemplate")} description={t("commandHint")} value={settings.commandTemplate || ""} onChange={(commandTemplate) => setSettings({ ...settings, commandTemplate })} placeholder={t("commandPlaceholder")} width="100%" />
+          <TextInput className="settings-mono-field" label={t("commandTemplate")} labelTooltip={t("commandHint")} value={settings.commandTemplate || ""} onChange={(commandTemplate) => setSettings({ ...settings, commandTemplate })} placeholder={t("commandPlaceholder")} width="100%" />
           <TextInput label={t("webhookUrl")} value={settings.httpUrl || ""} onChange={(httpUrl) => setSettings({ ...settings, httpUrl })} placeholder={t("webhookPlaceholder")} width="100%" />
         </div>
         <div className="settings-placeholder-reference">
@@ -78,4 +80,3 @@ export function NotificationSettingsSection({ onNotice }: { onNotice: (notice: S
     </>
   )
 }
-

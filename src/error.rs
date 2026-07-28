@@ -25,6 +25,10 @@ pub enum AppError {
     Validation(String),
     #[error("mail server operation failed: {0}")]
     Mail(String),
+    #[error("AI service operation failed: {0}")]
+    Ai(String),
+    #[error("calendar service operation failed: {0}")]
+    Calendar(String),
     #[error("internal error")]
     Internal(#[source] anyhow::Error),
 }
@@ -66,6 +70,16 @@ impl IntoResponse for AppError {
                 StatusCode::BAD_GATEWAY,
                 "MAIL_SERVER_ERROR",
                 "The mail server operation failed".to_owned(),
+            ),
+            Self::Ai(_) => (
+                StatusCode::BAD_GATEWAY,
+                "AI_SERVICE_ERROR",
+                "The AI service request failed".to_owned(),
+            ),
+            Self::Calendar(_) => (
+                StatusCode::BAD_GATEWAY,
+                "CALENDAR_SERVICE_ERROR",
+                "The calendar service request failed".to_owned(),
             ),
             Self::Internal(error) => {
                 tracing::error!(error = ?error, "request failed");

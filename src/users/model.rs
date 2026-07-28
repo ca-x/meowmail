@@ -38,6 +38,7 @@ pub struct PublicUser {
     pub has_password: bool,
     pub has_pin: bool,
     pub has_avatar: bool,
+    pub ai_enabled: bool,
     pub updated_at: i64,
 }
 
@@ -53,4 +54,10 @@ pub struct UserProfile {
 pub struct UserPasswordInput {
     pub current_password: Option<String>,
     pub new_password: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserAiAccessInput {
+    pub enabled: bool,
 }

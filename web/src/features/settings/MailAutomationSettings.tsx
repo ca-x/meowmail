@@ -85,7 +85,7 @@ export function MailAutomationSettings({ accounts, onNotice }: {
       <section className="settings-automation-block" aria-label={t("filterAndVacationReply")}>
         <Switch
           label={t("keepLocalCopies")}
-          description={t("keepLocalCopiesDescription")}
+          labelTooltip={t("keepLocalCopiesDescription")}
           value={settings.keepLocalAfterServerDelete}
           onChange={(checked) => void toggleRetention(checked)}
           isLoading={busy === "retention"}
@@ -105,7 +105,7 @@ export function MailAutomationSettings({ accounts, onNotice }: {
             {mode === "limited" ? (
               <NumberInput
                 label={t("syncFetchCount")}
-                description={t("syncFetchCountDescription")}
+                labelTooltip={t("syncFetchCountDescription")}
                 value={limit}
                 onChange={setLimit}
                 min={1}

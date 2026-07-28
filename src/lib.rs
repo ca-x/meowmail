@@ -1,5 +1,7 @@
 pub mod accounts;
+pub mod ai;
 pub mod auth;
+pub mod calendar;
 pub mod cleanup;
 pub mod config;
 pub mod contacts;
@@ -103,6 +105,8 @@ pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .merge(auth::routes())
+        .merge(ai::routes())
+        .merge(calendar::routes())
         .merge(cleanup::routes())
         .merge(contacts::routes())
         .merge(accounts::routes())

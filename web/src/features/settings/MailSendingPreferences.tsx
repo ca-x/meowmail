@@ -166,7 +166,7 @@ export function MailSendingPreferences({ preferences, onChange, accounts, onAcco
             isDisabled={!accounts.length || Boolean(busy)}
             width="100%"
           />
-          <Switch label={t("emptySubjectFromBody")} description={t("emptySubjectFromBodyDescription")} value={preferences.emptySubjectFromBody} onChange={(emptySubjectFromBody) => onChange({ ...preferences, emptySubjectFromBody })} labelPosition="start" labelSpacing="spread" />
+          <Switch label={t("emptySubjectFromBody")} labelTooltip={t("emptySubjectFromBodyDescription")} value={preferences.emptySubjectFromBody} onChange={(emptySubjectFromBody) => onChange({ ...preferences, emptySubjectFromBody })} labelPosition="start" labelSpacing="spread" />
           <div className="mail-compose-style-grid">
             <Selector label={t("defaultComposeFont")} value={preferences.composeFontFamily} onChange={(composeFontFamily) => onChange({ ...preferences, composeFontFamily: composeFontFamily as MailPreferences["composeFontFamily"] })} options={[
               { value: "default", label: t("fontDefault") },

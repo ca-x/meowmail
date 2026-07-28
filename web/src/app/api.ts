@@ -1,6 +1,21 @@
 import type {
   AccountInput,
+  AiProvider,
+  AiProviderInput,
+  AiTextResponse,
+  AutoLabelResult,
+  AutoLabelRule,
+  AutoLabelRuleFeed,
+  AutoLabelRuleInput,
+  AutoLabelSubscription,
+  AutoLabelSubscriptionInput,
+  AutoLabelSubscriptionSyncResult,
   AuthConfig,
+  Calendar,
+  CalendarAccount,
+  CalendarAccountInput,
+  CalendarEvent,
+  CalendarUpdate,
   CleanupRule,
   CleanupRuleInput,
   ComposeMessageInput,
@@ -10,6 +25,8 @@ import type {
   DraftInput,
   EmailDraft,
   ImportReport,
+  Label,
+  LabelInput,
   MailAccount,
   MailPreferences,
   MailSettings,
@@ -103,6 +120,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
+  updateAiAccess: (enabled: boolean) =>
+    request<PublicUser>("/api/v1/users/me/ai", {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
   updateAvatar: (file: File) =>
     request<PublicUser>("/api/v1/users/me/avatar", {
       method: "PUT",
@@ -169,6 +191,72 @@ export const api = {
     }),
   deleteDraft: (id: string) => request<void>(`/api/v1/drafts/${id}`, { method: "DELETE" }),
   sendDraft: (id: string) => request<void>(`/api/v1/drafts/${id}/send`, { method: "POST" }),
+  aiProviders: () => request<AiProvider[]>("/api/v1/ai/providers"),
+  createAiProvider: (input: AiProviderInput) =>
+    request<AiProvider>("/api/v1/ai/providers", { method: "POST", body: JSON.stringify(input) }),
+  updateAiProvider: (id: string, input: AiProviderInput) =>
+    request<AiProvider>(`/api/v1/ai/providers/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteAiProvider: (id: string) =>
+    request<void>(`/api/v1/ai/providers/${id}`, { method: "DELETE" }),
+  testAiProvider: (id: string) =>
+    request<AiTextResponse>(`/api/v1/ai/providers/${id}/test`, { method: "POST" }),
+  translateText: (input: { providerId?: string | null; text: string; targetLanguage?: string | null }) =>
+    request<AiTextResponse>("/api/v1/ai/translate", { method: "POST", body: JSON.stringify(input) }),
+  polishText: (input: { providerId?: string | null; text: string; tone?: string | null }) =>
+    request<AiTextResponse>("/api/v1/ai/polish", { method: "POST", body: JSON.stringify(input) }),
+  labels: () => request<Label[]>("/api/v1/labels"),
+  createLabel: (input: LabelInput) =>
+    request<Label>("/api/v1/labels", { method: "POST", body: JSON.stringify(input) }),
+  updateLabel: (id: string, input: LabelInput) =>
+    request<Label>(`/api/v1/labels/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteLabel: (id: string) => request<void>(`/api/v1/labels/${id}`, { method: "DELETE" }),
+  autoLabelRules: () => request<AutoLabelRule[]>("/api/v1/auto-label-rules"),
+  exportAutoLabelRules: () => request<AutoLabelRuleFeed>("/api/v1/auto-label-rules/export"),
+  createAutoLabelRule: (input: AutoLabelRuleInput) =>
+    request<AutoLabelRule>("/api/v1/auto-label-rules", { method: "POST", body: JSON.stringify(input) }),
+  updateAutoLabelRule: (id: string, input: AutoLabelRuleInput) =>
+    request<AutoLabelRule>(`/api/v1/auto-label-rules/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteAutoLabelRule: (id: string) =>
+    request<void>(`/api/v1/auto-label-rules/${id}`, { method: "DELETE" }),
+  autoLabelSubscriptions: () =>
+    request<AutoLabelSubscription[]>("/api/v1/auto-label-subscriptions"),
+  createAutoLabelSubscription: (input: AutoLabelSubscriptionInput) =>
+    request<AutoLabelSubscription>("/api/v1/auto-label-subscriptions", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateAutoLabelSubscription: (id: string, input: AutoLabelSubscriptionInput) =>
+    request<AutoLabelSubscription>(`/api/v1/auto-label-subscriptions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteAutoLabelSubscription: (id: string) =>
+    request<void>(`/api/v1/auto-label-subscriptions/${id}`, { method: "DELETE" }),
+  syncAutoLabelSubscription: (id: string) =>
+    request<AutoLabelSubscriptionSyncResult>(`/api/v1/auto-label-subscriptions/${id}/sync`, {
+      method: "POST",
+    }),
+  autoLabelMessage: (id: string, ruleId?: string | null) =>
+    request<AutoLabelResult>(`/api/v1/messages/${id}/auto-label`, {
+      method: "POST",
+      body: JSON.stringify({ ruleId }),
+    }),
+  calendarAccounts: () => request<CalendarAccount[]>("/api/v1/calendar/accounts"),
+  createCalendarAccount: (input: CalendarAccountInput) =>
+    request<CalendarAccount>("/api/v1/calendar/accounts", { method: "POST", body: JSON.stringify(input) }),
+  updateCalendarAccount: (id: string, input: CalendarAccountInput) =>
+    request<CalendarAccount>(`/api/v1/calendar/accounts/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteCalendarAccount: (id: string) =>
+    request<void>(`/api/v1/calendar/accounts/${id}`, { method: "DELETE" }),
+  discoverCalendarAccount: (id: string) =>
+    request<Calendar[]>(`/api/v1/calendar/accounts/${id}/discover`, { method: "POST" }),
+  syncCalendarAccount: (id: string) =>
+    request<{ imported: number }>(`/api/v1/calendar/accounts/${id}/sync`, { method: "POST" }),
+  calendars: () => request<Calendar[]>("/api/v1/calendars"),
+  updateCalendar: (id: string, input: CalendarUpdate) =>
+    request<Calendar>(`/api/v1/calendars/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  calendarEvents: (params: URLSearchParams) =>
+    request<CalendarEvent[]>(`/api/v1/calendar/events?${params.toString()}`),
   notificationSettings: () =>
     request<NotificationSettings>("/api/v1/notifications/settings"),
   updateNotificationSettings: (settings: NotificationSettings) =>

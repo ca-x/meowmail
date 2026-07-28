@@ -160,7 +160,7 @@ export function GeneralSettingsPanel({ session, accounts, onSessionChanged, onOp
                 value={username}
                 onChange={setUsername}
                 placeholder={t("profileUsernamePlaceholder")}
-                description={t("usernameRequirements")}
+                labelTooltip={t("usernameRequirements")}
                 width="100%"
               />
               <TextInput

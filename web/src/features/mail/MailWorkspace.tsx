@@ -2,14 +2,14 @@ import { AppShell } from "@astryxdesign/core/AppShell"
 import { Layout, LayoutContent, LayoutPanel } from "@astryxdesign/core/Layout"
 import { MobileNav } from "@astryxdesign/core/MobileNav"
 import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import { AccountDialog } from "../accounts/AccountDialog"
 import { AccountManagerDialog } from "../accounts/AccountManagerDialog"
 import { SettingsDialog } from "../settings/SettingsDialog"
-import { ComposeDialog } from "./ComposeDialog"
+import { ComposeDialog, type ComposeWorkspaceRef } from "./ComposeDialog"
 import { ContactsDialog } from "./ContactsDialog"
 import { MessageDetail as DetailPane } from "./MessageDetail"
 import { MailNavigation } from "./workspace/MailNavigation"
@@ -27,7 +27,10 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
   const { t } = useI18n()
   const workspace = useMailWorkspace({ onLoggedOut })
   const deleteDraftDialog = useImperativeConfirmDialog()
+  const composeRef = useRef<ComposeWorkspaceRef | null>(null)
+  const composeTriggerRef = useRef<HTMLElement | null>(null)
   const viewportWidth = useViewportWidth()
+  const isComposing = workspace.composeDraft !== undefined
   const navigationMax = viewportWidth < 1_400 ? 260 : 320
   const detailMax = Math.max(440, Math.min(920, viewportWidth - navigationMax - 300))
   const navigationPanel = useResizable({
@@ -51,13 +54,34 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
     if (detailPanel.size > detailMax) detailPanel.resize(detailMax)
   }, [detailMax, detailPanel.resize, detailPanel.size])
 
+  const rememberComposeTrigger = () => {
+    composeTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  }
+  const closeCompose = (restoreFocus = true) => {
+    workspace.setComposeDraft(undefined)
+    if (!restoreFocus) return
+    window.requestAnimationFrame(() => {
+      if (composeTriggerRef.current?.isConnected) composeTriggerRef.current.focus()
+    })
+  }
+  const leaveCompose = async (action: () => void) => {
+    if (isComposing) {
+      const closed = await composeRef.current?.requestClose({ restoreFocus: false })
+      if (closed === false) return
+    }
+    action()
+  }
   const openSettings = () => {
-    workspace.setSidebarOpen(false)
-    workspace.setSettingsOpen(true)
+    void leaveCompose(() => {
+      workspace.setSidebarOpen(false)
+      workspace.setSettingsOpen(true)
+    })
   }
   const openAccountDialog = (account: typeof workspace.accountDialog) => {
-    workspace.setSidebarOpen(false)
-    workspace.setAccountDialog(account)
+    void leaveCompose(() => {
+      workspace.setSidebarOpen(false)
+      workspace.setAccountDialog(account)
+    })
   }
   const navigation = (
     <MailNavigation
@@ -67,20 +91,24 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
       filter={workspace.filter}
       unreadCount={workspace.messages.filter((message) => !message.isRead).length}
       draftCount={workspace.drafts.length}
-      onChooseAccount={workspace.chooseAccount}
-      onChooseFilter={workspace.chooseFilter}
+      onChooseAccount={(id) => void leaveCompose(() => workspace.chooseAccount(id))}
+      onChooseFilter={(filter) => void leaveCompose(() => workspace.chooseFilter(filter))}
       onCompose={() => {
+        if (isComposing) return
+        rememberComposeTrigger()
         workspace.setSidebarOpen(false)
         workspace.setComposeDraft(null)
       }}
       onOpenContacts={() => {
-        workspace.setSidebarOpen(false)
-        workspace.setContactsOpen(true)
+        void leaveCompose(() => {
+          workspace.setSidebarOpen(false)
+          workspace.setContactsOpen(true)
+        })
       }}
       onEditAccount={(account) => openAccountDialog(account)}
       onAddAccount={() => openAccountDialog(null)}
       onOpenSettings={openSettings}
-      onLogout={() => void workspace.logout()}
+      onLogout={() => void leaveCompose(() => void workspace.logout())}
     />
   )
 
@@ -113,6 +141,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
       <div
         className="mail-workspace-stage"
         data-view={workspace.mobileView}
+        data-mode={isComposing ? "compose" : "mail"}
         data-reading-mode={workspace.mailPreferences.readingMode}
         data-list-density={workspace.mailPreferences.listDensity}
       >
@@ -142,47 +171,73 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
             </>
           }
           content={
-            <LayoutContent className="mail-message-content" padding={0} isScrollable={false} label={t("inbox")}>
-              <MessageColumn
-                accounts={workspace.accounts}
-                activeAccount={workspace.activeAccount}
-                filter={workspace.filter}
-                messages={workspace.messages}
-                drafts={workspace.drafts}
-                selectedId={workspace.selectedId}
-                selectedMessageIds={workspace.selectedMessageIds}
-                loading={workspace.loading}
-                syncing={workspace.syncing}
-                deleting={workspace.deleting}
-                draftBusyId={workspace.draftBusyId}
-                preferences={workspace.mailPreferences}
-                onChooseFilter={workspace.chooseFilter}
-                onSync={() => void workspace.sync()}
-                onRefreshDrafts={() => void workspace.loadDrafts()}
-                onAddAccount={() => openAccountDialog(null)}
-                onSelect={(message) => void workspace.selectMessage(message)}
-                onToggleStar={(message) => void workspace.toggleStar(message)}
-                onToggleMessageSelection={workspace.toggleMessageSelection}
-                onClearMessageSelection={workspace.clearMessageSelection}
-                onBulkDeleteMessages={() => void workspace.bulkDeleteMessages()}
-                onOpenDraft={workspace.openDraft}
-                onSendDraft={(draft) => void workspace.sendDraft(draft)}
-                onDeleteDraft={(draft) => {
-                  void deleteDraftDialog.confirm({
-                    title: t("deleteDraftTitle"),
-                    description: t("deleteDraftConfirm"),
-                    cancelLabel: t("cancel"),
-                    actionLabel: t("delete"),
-                    actionVariant: "destructive",
-                  }).then((confirmed) => {
-                    if (confirmed) void workspace.deleteDraft(draft)
-                  })
-                }}
-              />
-            </LayoutContent>
+            isComposing ? (
+              <LayoutContent className="compose-workspace-host" padding={0} isScrollable={false} label={t("compose")}>
+                <ComposeDialog
+                  ref={composeRef}
+                  accounts={workspace.accounts}
+                  activeAccountId={workspace.activeAccountId}
+                  preferences={workspace.mailPreferences}
+                  aiEnabled={session.user.aiEnabled}
+                  draft={workspace.composeDraft ?? null}
+                  onClose={closeCompose}
+                  onSent={() => {
+                    closeCompose()
+                    void workspace.loadDrafts()
+                    workspace.notify("sentSuccess")
+                  }}
+                  onDraftSaved={(scheduled) => {
+                    void workspace.loadDrafts()
+                    workspace.notify(scheduled ? "scheduledDraftSaved" : "draftSaved")
+                  }}
+                />
+              </LayoutContent>
+            ) : (
+              <LayoutContent className="mail-message-content" padding={0} isScrollable={false} label={t("inbox")}>
+                <MessageColumn
+                  accounts={workspace.accounts}
+                  activeAccount={workspace.activeAccount}
+                  filter={workspace.filter}
+                  messages={workspace.messages}
+                  drafts={workspace.drafts}
+                  selectedId={workspace.selectedId}
+                  selectedMessageIds={workspace.selectedMessageIds}
+                  loading={workspace.loading}
+                  syncing={workspace.syncing}
+                  deleting={workspace.deleting}
+                  draftBusyId={workspace.draftBusyId}
+                  preferences={workspace.mailPreferences}
+                  onChooseFilter={workspace.chooseFilter}
+                  onSync={() => void workspace.sync()}
+                  onRefreshDrafts={() => void workspace.loadDrafts()}
+                  onAddAccount={() => openAccountDialog(null)}
+                  onSelect={(message) => void workspace.selectMessage(message)}
+                  onToggleStar={(message) => void workspace.toggleStar(message)}
+                  onToggleMessageSelection={workspace.toggleMessageSelection}
+                  onClearMessageSelection={workspace.clearMessageSelection}
+                  onBulkDeleteMessages={() => void workspace.bulkDeleteMessages()}
+                  onOpenDraft={(draft) => {
+                    rememberComposeTrigger()
+                    workspace.openDraft(draft)
+                  }}
+                  onSendDraft={(draft) => void workspace.sendDraft(draft)}
+                  onDeleteDraft={(draft) => {
+                    void deleteDraftDialog.confirm({
+                      title: t("deleteDraftTitle"),
+                      description: t("deleteDraftConfirm"),
+                      cancelLabel: t("cancel"),
+                      actionLabel: t("delete"),
+                      actionVariant: "destructive",
+                    }).then((confirmed) => {
+                      if (confirmed) void workspace.deleteDraft(draft)
+                    })
+                  }}
+                />
+              </LayoutContent>
+            )
           }
           end={
-            <>
+            isComposing ? undefined : <>
               <ResizeHandle
                 className="mail-detail-resize"
                 resizable={detailPanel.props}
@@ -205,11 +260,18 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
                   loading={workspace.detailLoading}
                   isDeleting={workspace.deleting}
                   preferences={workspace.mailPreferences}
+                  aiEnabled={session.user.aiEnabled}
                   onBack={() => workspace.setMobileView("list")}
                   onToggleStar={() => workspace.detail && void workspace.toggleStar(workspace.detail)}
                   onToggleRead={() => void workspace.toggleRead()}
-                  onReply={workspace.replyToMessage}
-                  onForward={workspace.forwardMessage}
+                  onReply={() => {
+                    rememberComposeTrigger()
+                    workspace.replyToMessage()
+                  }}
+                  onForward={() => {
+                    rememberComposeTrigger()
+                    workspace.forwardMessage()
+                  }}
                   onDelete={() => void workspace.deleteMessage()}
                 />
               </LayoutPanel>
@@ -217,24 +279,6 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
           }
         />
       </div>
-
-      <ComposeDialog
-        isOpen={workspace.composeDraft !== undefined}
-        accounts={workspace.accounts}
-        activeAccountId={workspace.activeAccountId}
-        preferences={workspace.mailPreferences}
-        draft={workspace.composeDraft === undefined ? null : workspace.composeDraft}
-        onClose={() => workspace.setComposeDraft(undefined)}
-        onSent={() => {
-          workspace.setComposeDraft(undefined)
-          void workspace.loadDrafts()
-          workspace.notify("sentSuccess")
-        }}
-        onDraftSaved={(scheduled) => {
-          void workspace.loadDrafts()
-          workspace.notify(scheduled ? "scheduledDraftSaved" : "draftSaved")
-        }}
-      />
       <ContactsDialog
         isOpen={workspace.contactsOpen}
         onClose={() => workspace.setContactsOpen(false)}

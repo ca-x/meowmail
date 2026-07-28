@@ -1,4 +1,5 @@
 import { Avatar } from "@astryxdesign/core/Avatar"
+import { Badge } from "@astryxdesign/core/Badge"
 import { Button } from "@astryxdesign/core/Button"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { IconButton } from "@astryxdesign/core/IconButton"
@@ -7,21 +8,23 @@ import { List } from "@astryxdesign/core/List"
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { Toolbar } from "@astryxdesign/core/Toolbar"
-import { ArrowLeft, CornerUpLeft, Download, Eye, FileText, Forward, MailOpen, ShieldCheck, Star, Trash2 } from "lucide-react"
+import { useToast } from "@astryxdesign/core/Toast"
+import { ArrowLeft, CornerUpLeft, Download, Eye, FileText, Forward, Languages, MailOpen, ShieldCheck, Star, Tags, Trash2, X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { api } from "../../app/api"
-import type { MailAttachment, MailPreferences, MessageDetail as Detail } from "../../app/types"
+import type { Label, MailAttachment, MailPreferences, MessageDetail as Detail } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import { useTheme } from "../../theme/ThemeProvider"
 import { AttachmentPreviewDialog } from "./AttachmentPreviewDialog"
 
-export function MessageDetail({ message, thread, loading, isDeleting = false, preferences, onBack, onToggleStar, onToggleRead, onReply, onForward, onDelete }: {
+export function MessageDetail({ message, thread, loading, isDeleting = false, preferences, aiEnabled = false, onBack, onToggleStar, onToggleRead, onReply, onForward, onDelete }: {
   message: Detail | null
   thread: Detail[]
   loading: boolean
   isDeleting?: boolean
   preferences: MailPreferences
+  aiEnabled?: boolean
   onBack: () => void
   onToggleStar: () => void
   onToggleRead: () => void
@@ -31,14 +34,50 @@ export function MessageDetail({ message, thread, loading, isDeleting = false, pr
 }) {
   const { locale, t } = useI18n()
   const { resolved: themeMode } = useTheme()
+  const showToast = useToast()
   const [view, setView] = useState<"html" | "text">("html")
   const [previewAttachment, setPreviewAttachment] = useState<MailAttachment | null>(null)
+  const [translation, setTranslation] = useState("")
+  const [appliedLabels, setAppliedLabels] = useState<Label[]>([])
+  const [aiBusy, setAiBusy] = useState<"translate" | "label" | null>(null)
   const srcDoc = useMemo(() => message?.bodyHtml ? emailDocument(message.bodyHtml, themeMode) : "", [message?.bodyHtml, themeMode])
 
   useEffect(() => {
     setView(preferences.plainTextReading ? "text" : "html")
     setPreviewAttachment(null)
+    setTranslation("")
+    setAppliedLabels([])
   }, [message?.id, preferences.plainTextReading])
+
+  async function translateMessage() {
+    if (!message || !aiEnabled || aiBusy) return
+    setAiBusy("translate")
+    try {
+      const result = await api.translateText({
+        text: message.bodyText || message.preview,
+        targetLanguage: locale === "zh-CN" ? "Simplified Chinese" : "English",
+      })
+      setTranslation(result.text)
+    } catch {
+      showToast({ body: t("genericError"), type: "error", uniqueID: "message-translate-error", collisionBehavior: "overwrite" })
+    } finally {
+      setAiBusy(null)
+    }
+  }
+
+  async function autoLabelMessage() {
+    if (!message || !aiEnabled || aiBusy) return
+    setAiBusy("label")
+    try {
+      const result = await api.autoLabelMessage(message.id)
+      setAppliedLabels(result.labels)
+      showToast({ body: t("autoLabelApplied", { count: result.labels.length }), type: "info", uniqueID: "message-auto-label-success", collisionBehavior: "overwrite" })
+    } catch {
+      showToast({ body: t("genericError"), type: "error", uniqueID: "message-auto-label-error", collisionBehavior: "overwrite" })
+    } finally {
+      setAiBusy(null)
+    }
+  }
 
   if (loading) return <MessageDetailSkeleton label={t("loading")} />
   if (!message) {
@@ -104,6 +143,46 @@ export function MessageDetail({ message, thread, loading, isDeleting = false, pr
               </SegmentedControl>
               <span><ShieldCheck aria-hidden="true" />{t("remoteImagesBlocked")}</span>
             </div>
+          )}
+
+          {aiEnabled && (
+            <div className="message-ai-toolbar" aria-label={t("aiMailActions")}>
+              <span>
+                <Button
+                  label={aiBusy === "translate" ? t("translatingEmail") : t("translateEmail")}
+                  icon={<Languages aria-hidden="true" />}
+                  variant="ghost"
+                  size="sm"
+                  isLoading={aiBusy === "translate"}
+                  isDisabled={Boolean(aiBusy)}
+                  onClick={() => void translateMessage()}
+                />
+                <Button
+                  label={aiBusy === "label" ? t("autoLabelingEmail") : t("autoLabelEmail")}
+                  icon={<Tags aria-hidden="true" />}
+                  variant="ghost"
+                  size="sm"
+                  isLoading={aiBusy === "label"}
+                  isDisabled={Boolean(aiBusy)}
+                  onClick={() => void autoLabelMessage()}
+                />
+              </span>
+              {appliedLabels.length > 0 && (
+                <span className="message-ai-labels">
+                  {appliedLabels.map((label) => <Badge key={label.id} variant="neutral" label={label.name} />)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {aiEnabled && translation && (
+            <section className="message-translation" aria-labelledby="message-translation-title">
+              <header>
+                <div><Languages aria-hidden="true" /><h2 id="message-translation-title">{t("translatedEmail")}</h2></div>
+                <IconButton label={t("close")} icon={<X aria-hidden="true" />} variant="ghost" size="sm" onClick={() => setTranslation("")} />
+              </header>
+              <pre>{translation}</pre>
+            </section>
           )}
 
           <div className="message-body" lang={locale}>

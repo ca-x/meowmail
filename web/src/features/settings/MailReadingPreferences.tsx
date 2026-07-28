@@ -34,8 +34,8 @@ export function MailReadingPreferences({ preferences, onChange }: {
             <SegmentedControlItem value="compact" label={t("densityCompact")} />
           </SegmentedControl>
         </div>
-        <Switch label={t("conversationMode")} description={t("conversationModeDescription")} value={preferences.conversationMode} onChange={(conversationMode) => onChange({ ...preferences, conversationMode })} labelPosition="start" labelSpacing="spread" />
-        <Switch label={t("aggregatePromotions")} description={t("aggregatePromotionsDescription")} value={preferences.aggregatePromotions} onChange={(aggregatePromotions) => onChange({ ...preferences, aggregatePromotions })} labelPosition="start" labelSpacing="spread" />
+        <Switch label={t("conversationMode")} labelTooltip={t("conversationModeDescription")} value={preferences.conversationMode} onChange={(conversationMode) => onChange({ ...preferences, conversationMode })} labelPosition="start" labelSpacing="spread" />
+        <Switch label={t("aggregatePromotions")} labelTooltip={t("aggregatePromotionsDescription")} value={preferences.aggregatePromotions} onChange={(aggregatePromotions) => onChange({ ...preferences, aggregatePromotions })} labelPosition="start" labelSpacing="spread" />
         <div className="mail-preference-check-grid">
           <CheckboxInput label={t("showMessageSummary")} value={preferences.showSummary} onChange={(showSummary) => onChange({ ...preferences, showSummary })} />
           <CheckboxInput label={t("showMessageSize")} value={preferences.showMessageSize} onChange={(showMessageSize) => onChange({ ...preferences, showMessageSize })} />
@@ -48,7 +48,7 @@ export function MailReadingPreferences({ preferences, onChange }: {
             <SegmentedControlItem value="messageList" label={t("returnToMessageList")} />
           </SegmentedControl>
         </div>
-        <Switch label={t("plainTextReading")} description={t("plainTextReadingDescription")} value={preferences.plainTextReading} onChange={(plainTextReading) => onChange({ ...preferences, plainTextReading })} labelPosition="start" labelSpacing="spread" />
+        <Switch label={t("plainTextReading")} labelTooltip={t("plainTextReadingDescription")} value={preferences.plainTextReading} onChange={(plainTextReading) => onChange({ ...preferences, plainTextReading })} labelPosition="start" labelSpacing="spread" />
       </Card>
     </section>
   )

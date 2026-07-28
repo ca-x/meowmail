@@ -10,7 +10,7 @@ use crate::{
     error::AppError,
 };
 
-use super::{Contact, ContactInput};
+use super::{Contact, ContactInput, model::contact_search_aliases};
 
 #[derive(Clone)]
 pub struct ContactRepository {
@@ -28,27 +28,28 @@ impl ContactRepository {
         query: Option<String>,
         limit: u64,
     ) -> Result<Vec<Contact>, AppError> {
+        let limit = limit.clamp(1, 100) as usize;
+        let query = query
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
         let mut select = contact::Entity::find()
             .filter(contact::Column::UserId.eq(user_id.to_string()))
             .order_by_asc(contact::Column::DisplayName)
-            .order_by_asc(contact::Column::Email)
-            .limit(limit.clamp(1, 100));
-        if let Some(query) = query
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty())
-        {
-            let pattern = format!("%{}%", query.to_ascii_lowercase());
-            select = select.filter(sea_orm::sea_query::Expr::cust_with_values(
-                "(LOWER(display_name) LIKE ? OR LOWER(email) LIKE ?)",
-                [pattern.clone(), pattern],
-            ));
+            .order_by_asc(contact::Column::Email);
+        if query.is_none() {
+            select = select.limit(limit as u64);
         }
-        select
+        let mut contacts = select
             .all(self.db.connection())
             .await?
             .into_iter()
             .map(Contact::try_from)
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(query) = query {
+            contacts.retain(|contact| contact_matches_query(contact, &query));
+            contacts.truncate(limit);
+        }
+        Ok(contacts)
     }
 
     pub async fn create(
@@ -131,12 +132,56 @@ impl TryFrom<contact::Model> for Contact {
     fn try_from(model: contact::Model) -> Result<Self, Self::Error> {
         Ok(Self {
             id: Uuid::parse_str(&model.id).map_err(AppError::internal)?,
+            search_aliases: contact_search_aliases(&model.display_name),
             display_name: model.display_name,
             email: model.email,
             notes: model.notes,
             created_at: model.created_at,
             updated_at: model.updated_at,
         })
+    }
+}
+
+fn contact_matches_query(contact: &Contact, query: &str) -> bool {
+    contact.display_name.to_lowercase().contains(query)
+        || contact.email.to_lowercase().contains(query)
+        || contact.notes.to_lowercase().contains(query)
+        || contact
+            .search_aliases
+            .iter()
+            .any(|alias| alias.contains(query))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contact_matches_query;
+    use crate::contacts::Contact;
+    use uuid::Uuid;
+
+    fn contact(name: &str, aliases: &[&str]) -> Contact {
+        Contact {
+            id: Uuid::new_v4(),
+            display_name: name.into(),
+            email: "person@example.com".into(),
+            notes: "Design team".into(),
+            search_aliases: aliases.iter().map(|alias| (*alias).into()).collect(),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn matches_direct_text_pinyin_and_initials() {
+        let chinese = contact("张三", &["zhangsan", "zhang san", "zs"]);
+        assert!(contact_matches_query(&chinese, "张"));
+        assert!(contact_matches_query(&chinese, "zhang"));
+        assert!(contact_matches_query(&chinese, "zs"));
+
+        let english = contact("John Smith", &["js"]);
+        assert!(contact_matches_query(&english, "john"));
+        assert!(contact_matches_query(&english, "js"));
+        assert!(contact_matches_query(&english, "design"));
+        assert!(!contact_matches_query(&english, "zz"));
     }
 }
 

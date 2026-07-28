@@ -1,5 +1,7 @@
 export type ConnectionSecurity = "tls" | "starttls"
 export type ProxyKind = "direct" | "http" | "socks5"
+export type AiProviderKind = "openai" | "claude" | "gemini"
+export type AiApiType = "chat" | "responses" | "messages" | "generateContent"
 
 export interface ServerConfig {
   host: string
@@ -103,6 +105,7 @@ export interface PublicUser {
   hasPassword: boolean
   hasPin: boolean
   hasAvatar: boolean
+  aiEnabled: boolean
   updatedAt: number
 }
 
@@ -171,6 +174,7 @@ export interface Contact {
   displayName: string
   email: string
   notes: string
+  searchAliases: string[]
   createdAt: number
   updatedAt: number
 }
@@ -219,6 +223,167 @@ export interface ComposeMessageInput {
 
 export interface DraftInput extends ComposeMessageInput {
   scheduledAt?: number | null
+}
+
+export interface AiProvider {
+  id: string
+  name: string
+  providerKind: AiProviderKind
+  apiType: AiApiType
+  model: string
+  baseUrl?: string | null
+  proxy: PublicProxyConfig
+  isDefault: boolean
+  enabled: boolean
+  hasApiKey: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AiProviderInput {
+  name: string
+  providerKind: AiProviderKind
+  apiType: AiApiType
+  model: string
+  baseUrl?: string | null
+  apiKey?: string | null
+  proxy: {
+    kind: ProxyKind
+    host?: string | null
+    port?: number | null
+    username?: string | null
+    password?: string | null
+  }
+  isDefault: boolean
+  enabled: boolean
+}
+
+export interface AiTextResponse {
+  text: string
+}
+
+export interface LabelInput {
+  name: string
+  color: string
+  isAuto: boolean
+}
+
+export interface Label extends LabelInput {
+  id: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AutoLabelRuleInput {
+  accountId?: string | null
+  providerId?: string | null
+  name: string
+  labelIds: string[]
+  instructions: string
+  enabled: boolean
+  applyAutomatically: boolean
+}
+
+export interface AutoLabelRule extends AutoLabelRuleInput {
+  id: string
+  sourceSubscriptionId?: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AutoLabelSubscriptionInput {
+  name: string
+  url: string
+  enabled: boolean
+}
+
+export interface AutoLabelSubscription extends AutoLabelSubscriptionInput {
+  id: string
+  lastSyncedAt?: number | null
+  lastError?: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AutoLabelSubscriptionSyncResult {
+  subscription: AutoLabelSubscription
+  labelsImported: number
+  rulesImported: number
+  rulesSkipped: number
+}
+
+export interface AutoLabelRuleFeed {
+  format: string
+  version: number
+  labels: Array<{ name: string; color: string; isAuto: boolean }>
+  rules: Array<{
+    accountEmail?: string | null
+    providerName?: string | null
+    name: string
+    labelNames: string[]
+    instructions: string
+    enabled: boolean
+    applyAutomatically: boolean
+  }>
+}
+
+export interface AutoLabelResult {
+  messageId: string
+  labels: Label[]
+}
+
+export interface CalendarAccountInput {
+  name: string
+  baseUrl: string
+  username: string
+  password?: string | null
+  enabled: boolean
+}
+
+export interface CalendarAccount {
+  id: string
+  name: string
+  baseUrl: string
+  username: string
+  enabled: boolean
+  hasPassword: boolean
+  lastSyncedAt?: number | null
+  lastError?: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Calendar {
+  id: string
+  accountId: string
+  displayName: string
+  color: string
+  remoteHref: string
+  syncToken?: string | null
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CalendarUpdate {
+  displayName: string
+  color: string
+  enabled: boolean
+}
+
+export interface CalendarEvent {
+  id: string
+  calendarId: string
+  uid: string
+  summary: string
+  description: string
+  location: string
+  startsAt: number
+  endsAt: number
+  allDay: boolean
+  timezone?: string | null
+  createdAt: number
+  updatedAt: number
 }
 
 export interface ConnectionTestResponse {
@@ -289,6 +454,8 @@ export interface MigrationSections {
   notifications: boolean
   cleanup: boolean
   preferences: boolean
+  ai: boolean
+  calendar: boolean
 }
 
 export interface MigrationArchive {
@@ -305,6 +472,11 @@ export interface ImportReport {
   rulesImported: number
   signaturesImported: number
   preferencesImported: number
+  aiProvidersImported: number
+  labelsImported: number
+  autoLabelRulesImported: number
+  autoLabelSubscriptionsImported: number
+  calendarAccountsImported: number
   conflicts: string[]
 }
 
