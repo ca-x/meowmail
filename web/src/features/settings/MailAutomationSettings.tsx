@@ -2,7 +2,7 @@ import { Button } from "@astryxdesign/core/Button"
 import { NumberInput } from "@astryxdesign/core/NumberInput"
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl"
 import { Switch } from "@astryxdesign/core/Switch"
-import { MailCheck, Save } from "lucide-react"
+import { Filter, Save } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
 
 import { api } from "../../app/api"
@@ -81,8 +81,8 @@ export function MailAutomationSettings({ accounts, onNotice }: {
 
   return (
     <>
-      <SettingsPanelHeading icon={<MailCheck />} title={t("mailRetention")} description={t("mailRetentionDescription")} />
-      <section className="settings-automation-block" aria-label={t("mailRetention")}>
+      <SettingsPanelHeading icon={<Filter />} title={t("filterAndVacationReply")} description={t("filterAndVacationReplyDescription")} />
+      <section className="settings-automation-block" aria-label={t("filterAndVacationReply")}>
         <Switch
           label={t("keepLocalCopies")}
           description={t("keepLocalCopiesDescription")}

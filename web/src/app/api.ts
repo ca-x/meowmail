@@ -4,6 +4,7 @@ import type {
   CleanupRule,
   CleanupRuleInput,
   ComposeMessageInput,
+  ConnectionTestResponse,
   Contact,
   ContactInput,
   DraftInput,
@@ -124,12 +125,12 @@ export const api = {
     }),
   deleteAccount: (id: string) => request<void>(`/api/v1/accounts/${id}`, { method: "DELETE" }),
   testAccount: (input: AccountInput) =>
-    request<{ imap: boolean; smtp: boolean }>("/api/v1/accounts/test", {
+    request<ConnectionTestResponse>("/api/v1/accounts/test", {
       method: "POST",
       body: JSON.stringify(input),
     }),
   testSavedAccount: (id: string) =>
-    request<{ imap: boolean; smtp: boolean }>(`/api/v1/accounts/${id}/test`, { method: "POST" }),
+    request<ConnectionTestResponse>(`/api/v1/accounts/${id}/test`, { method: "POST" }),
   syncAccount: (id: string) =>
     request<{ inserted: number; syncedAt: number }>(`/api/v1/accounts/${id}/sync`, {
       method: "POST",

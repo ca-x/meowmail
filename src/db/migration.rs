@@ -14,7 +14,40 @@ impl MigratorTrait for Migrator {
             Box::new(AttachmentPreviewMigration),
             Box::new(MailExperienceMigration),
             Box::new(ContactsDraftSchedulingMigration),
+            Box::new(DraftAttachmentsMigration),
         ]
+    }
+}
+
+struct DraftAttachmentsMigration;
+
+impl MigrationName for DraftAttachmentsMigration {
+    fn name(&self) -> &str {
+        "m20260728_000009_draft_attachments"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for DraftAttachmentsMigration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+                ALTER TABLE email_drafts
+                    ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]';
+                "#,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared("ALTER TABLE email_drafts DROP COLUMN attachments_json;")
+            .await?;
+        Ok(())
     }
 }
 

@@ -2,6 +2,7 @@ import { Banner } from "@astryxdesign/core/Banner"
 import { Button } from "@astryxdesign/core/Button"
 import { Card } from "@astryxdesign/core/Card"
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
+import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput"
 import { IconButton } from "@astryxdesign/core/IconButton"
 import { NumberInput } from "@astryxdesign/core/NumberInput"
 import { Selector } from "@astryxdesign/core/Selector"
@@ -13,9 +14,12 @@ import type { MailAccount, RuleActionKind, RuleCondition, RuleField, RuleOperato
 import { useI18n } from "../../i18n/I18nProvider"
 import {
   actionKey, actionOptions, conditionPlaceholder, defaultAction, defaultCondition,
-  epochToLocalDateTime, fieldKey, fieldOptions, localDateTimeToEpoch, normalizeConditionForField,
+  fieldKey, fieldOptions, normalizeConditionForField,
   numericFields, operatorKey, operatorsFor, type RuleDraft,
 } from "./receiveRuleUtils"
+
+const MIN_RULE_DATE_TIME = "2000-01-01T00:00" as ISODateTimeString
+const MIN_RULE_TIMESTAMP = 946_684_800
 
 export function ReceiveRuleForm({ draft, accounts, busy, onChange, onConditionChange, onCancel, onSubmit }: {
   draft: RuleDraft
@@ -98,11 +102,40 @@ function ConditionValue({ condition, onChange }: {
   const { t } = useI18n()
   if (condition.field === "hasAttachment") return <span className="receive-rule-value-empty" aria-hidden="true" />
   if (condition.field === "receivedAt") {
-    return <label className="receive-rule-native-field"><span>{t("ruleValues")}</span><input type="datetime-local" value={epochToLocalDateTime(condition.values[0])} onChange={(event) => onChange([localDateTimeToEpoch(event.target.value)])} /></label>
+    return (
+      <DateTimeInput
+        label={t("ruleValues")}
+        isLabelHidden
+        value={epochToLocalDateTime(condition.values[0])}
+        onChange={(value) => onChange([localDateTimeToEpoch(value)])}
+        min={MIN_RULE_DATE_TIME}
+        hasClear
+        hourFormat="24h"
+        timeIncrement={30}
+        width="100%"
+      />
+    )
   }
   if (numericFields.has(condition.field)) {
     const parsed = Number(condition.values[0])
     return <NumberInput label={t("ruleValues")} isLabelHidden value={Number.isFinite(parsed) ? parsed : null} onChange={(value) => onChange([value === null ? "" : String(value)])} placeholder={conditionPlaceholder(condition.field, t)} min={0} isIntegerOnly hasClear width="100%" />
   }
   return <TextInput label={t("ruleValues")} isLabelHidden value={condition.values.join(", ")} onChange={(value) => onChange(value.split(/[,，]/))} placeholder={conditionPlaceholder(condition.field, t)} width="100%" />
+}
+
+function epochToLocalDateTime(value?: string): ISODateTimeString | undefined {
+  if (!value) return undefined
+  const seconds = Number(value)
+  if (!Number.isFinite(seconds)) return undefined
+  const date = new Date(seconds * 1_000)
+  const pad = (part: number) => String(part).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}` as ISODateTimeString
+}
+
+function localDateTimeToEpoch(value: ISODateTimeString | undefined) {
+  if (!value) return ""
+  const timestamp = new Date(value).getTime()
+  if (!Number.isFinite(timestamp)) return ""
+  const seconds = Math.floor(timestamp / 1_000)
+  return seconds >= MIN_RULE_TIMESTAMP ? String(seconds) : ""
 }

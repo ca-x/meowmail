@@ -12,6 +12,7 @@ import { useI18n } from "../../i18n/I18nProvider"
 import type { MessageKey } from "../../i18n/messages"
 import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
 import { AccountIdentityFields, AccountProxySettings, AccountServerSettings } from "./AccountFormFields"
+import type { ConnectionTestResponse } from "../../app/types"
 
 interface Props {
   isOpen?: boolean
@@ -88,11 +89,13 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
   const [input, setInput] = useState<AccountInput>(() => account ? fromAccount(account) : emptyInput())
   const [busy, setBusy] = useState<"save" | "test" | "delete" | null>(null)
   const [message, setMessage] = useState<MessageKey | null>(null)
+  const [connectionResult, setConnectionResult] = useState<ConnectionTestResponse | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
     setInput(account ? fromAccount(account) : emptyInput())
     setMessage(null)
+    setConnectionResult(null)
   }, [account, isOpen])
 
   function preset(kind: AccountPreset, displayName: string) {
@@ -133,10 +136,13 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
   async function testConnection() {
     setBusy("test")
     setMessage(null)
+    setConnectionResult(null)
     try {
-      if (account && !input.password && !input.proxy.password) await api.testSavedAccount(account.id)
-      else await api.testAccount(normalize(input, false))
-      setMessage("connectionOk")
+      const result = account && !input.password && !input.proxy.password
+        ? await api.testSavedAccount(account.id)
+        : await api.testAccount(normalize(input, false))
+      setConnectionResult(result)
+      setMessage(result.imap && result.smtp ? "connectionOk" : "connectionPartial")
     } catch {
       setMessage("genericError")
     } finally {
@@ -220,7 +226,14 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
                     <CheckboxInput label={t("defaultAccount")} value={input.isDefault} onChange={(isDefault) => setInput({ ...input, isDefault })} />
                   </section>
 
-                  {message && <Banner status={message === "connectionOk" ? "success" : "error"} title={t(message)} container="section" />}
+                  {message && (
+                    <Banner
+                      status={message === "connectionOk" ? "success" : message === "connectionPartial" ? "warning" : "error"}
+                      title={t(message)}
+                      description={connectionResult ? connectionSummary(connectionResult, t) : undefined}
+                      container="section"
+                    />
+                  )}
                 </div>
               </LayoutContent>
             }
@@ -263,4 +276,12 @@ function isAccountInputComplete(input: AccountInput, editing: boolean) {
 
 function isValidPort(port: number | null | undefined) {
   return typeof port === "number" && Number.isInteger(port) && port >= 1 && port <= 65_535
+}
+
+function connectionSummary(result: ConnectionTestResponse, t: (key: MessageKey, values?: Record<string, string | number>) => string) {
+  const lines = [
+    `${t("imapServer")}: ${result.imap ? t("connectionPassed") : result.imapError || t("connectionFailed")}`,
+    `${t("smtpServer")}: ${result.smtp ? t("connectionPassed") : result.smtpError || t("connectionFailed")}`,
+  ]
+  return lines.join("\n")
 }

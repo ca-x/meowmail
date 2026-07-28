@@ -19,6 +19,7 @@ use crate::{
     accounts::AccountRepository,
     auth::{MutationSession, require_session},
     cleanup::{CleanupRepository, RuleOutcome},
+    contacts::ContactRepository,
     error::AppError,
     mail::{connect_imap_session, delete_imap_uid_set, parse_message},
     preferences::{MailPreferences, PreferencesRepository},
@@ -237,7 +238,16 @@ async fn delete_message(
     Path(id): Path<Uuid>,
     mutation: MutationSession,
 ) -> Result<axum::http::StatusCode, AppError> {
-    delete_message_with(state, mutation.0.user_id, id, delete_message_from_server).await?;
+    let message = MessageRepository::new(state.db.clone())
+        .get(mutation.0.user_id, id)
+        .await?;
+    if message.summary.folder.eq_ignore_ascii_case("Sent") {
+        MessageRepository::new(state.db)
+            .delete_local(mutation.0.user_id, id)
+            .await?;
+    } else {
+        delete_message_with(state, mutation.0.user_id, id, delete_message_from_server).await?;
+    }
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -659,8 +669,22 @@ async fn run_automatic_actions(
     {
         outcome.forwards.push(address);
     }
-    if preferences.auto_reply_enabled
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let contact_allowed = if preferences.auto_reply_contacts_only {
+        ContactRepository::new(state.db.clone())
+            .contains_email(user_id, &mail.sender_email)
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(error = %error, "auto-reply contact lookup failed");
+                false
+            })
+    } else {
+        true
+    };
+    if preferences.is_auto_reply_active_at(now)
+        && preferences.applies_to_auto_reply_account(account_id)
         && mail.auto_response_allowed
+        && contact_allowed
         && !mail.sender_email.eq_ignore_ascii_case(account_email)
     {
         outcome
@@ -695,6 +719,7 @@ async fn run_automatic_actions(
                 subject,
                 text_body: body,
                 html_body: None,
+                attachments: Vec::new(),
                 signature_id: None,
                 apply_signature: true,
             },
@@ -732,9 +757,10 @@ async fn run_automatic_actions(
                 ],
                 cc: Vec::new(),
                 bcc: Vec::new(),
-                subject: prefixed_subject(preferences.reply_prefix(), &mail.subject),
+                subject: preferences.auto_reply_subject_for(&mail.subject),
                 text_body: body,
                 html_body: None,
+                attachments: Vec::new(),
                 signature_id: None,
                 apply_signature: true,
             },

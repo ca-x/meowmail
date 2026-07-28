@@ -1,14 +1,21 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mail_builder::{MessageBuilder, headers::raw::Raw};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
     AppState,
     accounts::AccountRepository,
     error::AppError,
-    mail::send_smtp,
+    mail::{MailAttachment, send_smtp},
     preferences::{ComposeFontFamily, PreferencesRepository},
 };
+
+use super::repository::{MessageRepository, OutgoingStoredMessage};
+
+const MAX_OUTGOING_ATTACHMENTS: usize = 10;
+const MAX_OUTGOING_ATTACHMENT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_OUTGOING_ATTACHMENT_TOTAL_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,9 +31,27 @@ pub struct ComposeInput {
     #[serde(default)]
     pub html_body: Option<String>,
     #[serde(default)]
+    pub attachments: Vec<ComposeAttachmentInput>,
+    #[serde(default)]
     pub signature_id: Option<Uuid>,
     #[serde(default = "default_apply_signature")]
     pub apply_signature: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeAttachmentInput {
+    pub filename: String,
+    pub content_type: String,
+    pub content_base64: String,
+    pub size: usize,
+}
+
+#[derive(Debug, Clone)]
+struct DecodedAttachment {
+    filename: String,
+    content_type: String,
+    content: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -84,6 +109,7 @@ impl ComposeInput {
         {
             return Err(AppError::Validation("message body is too large".into()));
         }
+        validate_attachments(&mut self.attachments)?;
         Ok(())
     }
 }
@@ -103,6 +129,10 @@ pub async fn send_outgoing(
     input.validate()?;
     let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
     let (account, secrets, proxy) = accounts.get_with_secrets(user_id, input.account_id).await?;
+    let decoded_attachments = decode_attachments(&input.attachments)?;
+    let sent_recipients = input.to.clone();
+    let sent_cc = input.cc.clone();
+    let sent_bcc = input.bcc.clone();
     let signature_id = input
         .signature_id
         .or(account.signature_id)
@@ -126,7 +156,7 @@ pub async fn send_outgoing(
     if !input.cc.is_empty() {
         builder = builder.cc(input.cc.clone());
     }
-    let html = input.html_body.unwrap_or_else(|| {
+    let html = input.html_body.clone().unwrap_or_else(|| {
         styled_html_body(
             &input.text_body,
             preferences.compose_font_family,
@@ -134,7 +164,7 @@ pub async fn send_outgoing(
             &preferences.compose_font_color,
         )
     });
-    builder = builder.html_body(html);
+    builder = builder.html_body(html.clone());
     if let Some(in_reply_to) = threading.in_reply_to {
         builder = builder.in_reply_to(in_reply_to);
     }
@@ -142,13 +172,21 @@ pub async fn send_outgoing(
         let references = threading.references;
         builder = builder.references(references);
     }
+    let is_automatic = threading.automatic.is_some();
     if let Some(automatic) = threading.automatic {
         builder = add_automatic_headers(builder, automatic);
     }
+    for attachment in &decoded_attachments {
+        builder = builder.attachment(
+            attachment.content_type.as_str(),
+            attachment.filename.as_str(),
+            attachment.content.clone(),
+        );
+    }
     let message = builder.write_to_vec().map_err(AppError::internal)?;
-    let mut recipients = input.to;
-    recipients.extend(input.cc);
-    recipients.extend(input.bcc);
+    let mut recipients = sent_recipients.clone();
+    recipients.extend(sent_cc.clone());
+    recipients.extend(sent_bcc.clone());
     send_smtp(
         &account,
         &secrets,
@@ -158,7 +196,33 @@ pub async fn send_outgoing(
         &message,
     )
     .await
-    .map_err(|error| AppError::Mail(error.to_string()))
+    .map_err(|error| AppError::Mail(error.to_string()))?;
+    if !is_automatic {
+        MessageRepository::new(state.db.clone())
+            .insert_sent(
+                user_id,
+                &account,
+                OutgoingStoredMessage {
+                    recipients: sent_recipients,
+                    cc_recipients: sent_cc,
+                    bcc_recipients: sent_bcc,
+                    subject: input.subject,
+                    body_text: input.text_body,
+                    body_html: Some(html),
+                    attachments: decoded_attachments
+                        .into_iter()
+                        .map(|attachment| MailAttachment {
+                            filename: attachment.filename,
+                            content_type: attachment.content_type,
+                            size: attachment.content.len(),
+                            content: Some(attachment.content),
+                        })
+                        .collect(),
+                },
+            )
+            .await?;
+    }
+    Ok(())
 }
 
 fn default_apply_signature() -> bool {
@@ -173,6 +237,86 @@ fn add_automatic_headers(
         .header("Auto-Submitted", Raw::new(automatic.header_value()))
         .header("X-Auto-Response-Suppress", Raw::new("All"))
         .header("Precedence", Raw::new("bulk"))
+}
+
+fn validate_attachments(attachments: &mut Vec<ComposeAttachmentInput>) -> Result<(), AppError> {
+    if attachments.len() > MAX_OUTGOING_ATTACHMENTS {
+        return Err(AppError::Validation("too many attachments".into()));
+    }
+    let mut total = 0_usize;
+    for attachment in attachments {
+        attachment.filename = clean_attachment_filename(&attachment.filename)?;
+        attachment.content_type = clean_content_type(&attachment.content_type)?;
+        if attachment.size > MAX_OUTGOING_ATTACHMENT_BYTES {
+            return Err(AppError::Validation("attachment is too large".into()));
+        }
+        total = total
+            .checked_add(attachment.size)
+            .ok_or_else(|| AppError::Validation("attachments are too large".into()))?;
+        if total > MAX_OUTGOING_ATTACHMENT_TOTAL_BYTES {
+            return Err(AppError::Validation("attachments are too large".into()));
+        }
+        if attachment.content_base64.len() > MAX_OUTGOING_ATTACHMENT_TOTAL_BYTES * 2 {
+            return Err(AppError::Validation(
+                "attachment payload is too large".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn decode_attachments(
+    attachments: &[ComposeAttachmentInput],
+) -> Result<Vec<DecodedAttachment>, AppError> {
+    attachments
+        .iter()
+        .map(|attachment| {
+            let content = STANDARD
+                .decode(&attachment.content_base64)
+                .map_err(|_| AppError::Validation("attachment payload is invalid".into()))?;
+            if content.len() != attachment.size || content.len() > MAX_OUTGOING_ATTACHMENT_BYTES {
+                return Err(AppError::Validation("attachment size is invalid".into()));
+            }
+            Ok(DecodedAttachment {
+                filename: attachment.filename.clone(),
+                content_type: attachment.content_type.clone(),
+                content,
+            })
+        })
+        .collect()
+}
+
+fn clean_attachment_filename(value: &str) -> Result<String, AppError> {
+    let filename = value
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(value)
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(255)
+        .collect::<String>();
+    if filename.is_empty() || matches!(filename.as_str(), "." | "..") {
+        Err(AppError::Validation(
+            "attachment filename is invalid".into(),
+        ))
+    } else {
+        Ok(filename)
+    }
+}
+
+fn clean_content_type(value: &str) -> Result<String, AppError> {
+    let value = value.trim().to_ascii_lowercase();
+    if value.len() <= 127
+        && value.contains('/')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'+' | b'-' | b'.'))
+    {
+        Ok(value)
+    } else {
+        Ok("application/octet-stream".into())
+    }
 }
 
 fn first_subject_line(body: &str) -> String {

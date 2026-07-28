@@ -19,5 +19,10 @@ export const defaultMailPreferences: MailPreferences = {
   autoForwardEnabled: false,
   autoForwardAddress: null,
   autoReplyEnabled: false,
+  autoReplySubject: "",
   autoReplyText: "",
+  autoReplyStartAt: null,
+  autoReplyEndAt: null,
+  autoReplyAccountIds: [],
+  autoReplyContactsOnly: false,
 }

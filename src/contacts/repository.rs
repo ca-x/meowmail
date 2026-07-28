@@ -110,6 +110,19 @@ impl ContactRepository {
         }
         Ok(())
     }
+
+    pub async fn contains_email(&self, user_id: Uuid, email: &str) -> Result<bool, AppError> {
+        let email = email.trim().to_ascii_lowercase();
+        if email.is_empty() {
+            return Ok(false);
+        }
+        Ok(contact::Entity::find()
+            .filter(contact::Column::UserId.eq(user_id.to_string()))
+            .filter(contact::Column::Email.eq(email))
+            .one(self.db.connection())
+            .await?
+            .is_some())
+    }
 }
 
 impl TryFrom<contact::Model> for Contact {

@@ -34,7 +34,7 @@ export function MailNavigation({ accounts, activeAccount, activeAccountId, filte
     { id: "unread", label: t("unread"), startContent: <FileText aria-hidden="true" />, isSelected: filter === "unread", onClick: () => onChooseFilter("unread") },
     { id: "attachments", label: t("attachments"), startContent: <Paperclip aria-hidden="true" />, isSelected: filter === "attachments", onClick: () => onChooseFilter("attachments") },
     { id: "drafts", label: t("drafts"), startContent: <FilePenLine aria-hidden="true" />, endContent: draftCount > 0 ? <Badge label={draftCount} variant="neutral" /> : undefined, isSelected: filter === "drafts", onClick: () => onChooseFilter("drafts") },
-    { id: "sent", label: t("sent"), startContent: <Send aria-hidden="true" />, isDisabled: true },
+    { id: "sent", label: t("sent"), startContent: <Send aria-hidden="true" />, isSelected: filter === "sent", onClick: () => onChooseFilter("sent") },
     { id: "trash", label: t("trash"), startContent: <Trash2 aria-hidden="true" />, isDisabled: true },
   ], [draftCount, filter, onChooseFilter, t, unreadCount])
 

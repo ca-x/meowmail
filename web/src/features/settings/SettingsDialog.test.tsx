@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, test, vi } from "vitest"
 
@@ -249,6 +249,38 @@ test("user can fetch all mail or a specified recent count", async () => {
   }))
 })
 
+test("mail settings save a vacation responder schedule and contacts-only scope", async () => {
+  const user = userEvent.setup()
+  mockSettingsLoad()
+  const update = vi.spyOn(api, "updateMailPreferences").mockImplementation(async (preferences) => preferences)
+
+  renderSettings([account])
+  await useEnglish(user)
+  await user.click(screen.getByRole("tab", { name: "Mail" }))
+
+  await user.click(await screen.findByRole("switch", { name: "Automatic reply" }))
+  await user.click(screen.getByRole("combobox", { name: "Active mailboxes" }))
+  await user.click(await screen.findByRole("option", { name: /Work/ }))
+  fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "01/01/2024" } })
+  fireEvent.change(screen.getByLabelText("Start time time"), { target: { value: "09:00" } })
+  fireEvent.change(screen.getByLabelText("End time"), { target: { value: "01/05/2024" } })
+  fireEvent.change(screen.getByLabelText("End time time"), { target: { value: "18:30" } })
+  await user.type(screen.getByRole("textbox", { name: "Automatic reply subject" }), "Out of office")
+  await user.type(screen.getByRole("textbox", { name: /^Automatic reply content/ }), "I am away this week.")
+  await user.click(screen.getByRole("checkbox", { name: "Reply only to contacts" }))
+  await user.click(screen.getByRole("button", { name: "Save mail preferences" }))
+
+  await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({
+    autoReplyEnabled: true,
+    autoReplySubject: "Out of office",
+    autoReplyText: "I am away this week.",
+    autoReplyStartAt: localEpoch("2024-01-01T09:00"),
+    autoReplyEndAt: localEpoch("2024-01-05T18:30"),
+    autoReplyAccountIds: [account.id],
+    autoReplyContactsOnly: true,
+  })))
+})
+
 test("settings tabs use arrow-key navigation and expose one tabpanel", async () => {
   const user = userEvent.setup()
   mockSettingsLoad()
@@ -263,3 +295,7 @@ test("settings tabs use arrow-key navigation and expose one tabpanel", async () 
   expect(screen.getAllByRole("tabpanel")).toHaveLength(1)
   expect(screen.getByRole("tabpanel", { name: "Mail" })).toBeInTheDocument()
 })
+
+function localEpoch(value: string) {
+  return Math.floor(new Date(value).getTime() / 1_000)
+}

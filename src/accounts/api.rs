@@ -162,18 +162,18 @@ async fn test_connection(
 ) -> Result<Json<ConnectionTestResponse>, AppError> {
     let imap = mail::test_imap(&account, &secrets, &proxy).await;
     let smtp = mail::test_smtp(&account, &secrets, &proxy).await;
+    if let Err(error) = &imap {
+        tracing::warn!(account_id = %account.id, protocol = "imap", error = %error, "mail connection test failed");
+    }
+    if let Err(error) = &smtp {
+        tracing::warn!(account_id = %account.id, protocol = "smtp", error = %error, "mail connection test failed");
+    }
     let response = ConnectionTestResponse {
         imap: imap.is_ok(),
         smtp: smtp.is_ok(),
+        imap_error: imap.err().map(connection_error_summary),
+        smtp_error: smtp.err().map(connection_error_summary),
     };
-    if let Err(error) = imap {
-        tracing::warn!(account_id = %account.id, protocol = "imap", error = %error, "mail connection test failed");
-        return Err(AppError::Mail("IMAP connection failed".into()));
-    }
-    if let Err(error) = smtp {
-        tracing::warn!(account_id = %account.id, protocol = "smtp", error = %error, "mail connection test failed");
-        return Err(AppError::Mail("SMTP connection failed".into()));
-    }
     Ok(Json(response))
 }
 
@@ -182,7 +182,28 @@ fn repository(state: &AppState) -> AccountRepository {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ConnectionTestResponse {
     imap: bool,
     smtp: bool,
+    imap_error: Option<String>,
+    smtp_error: Option<String>,
+}
+
+fn connection_error_summary(error: anyhow::Error) -> String {
+    error
+        .chain()
+        .map(ToString::to_string)
+        .find(|message| {
+            let lower = message.to_ascii_lowercase();
+            lower.contains("proxy")
+                || lower.contains("tls")
+                || lower.contains("authentication")
+                || lower.contains("timed out")
+                || lower.contains("connection")
+        })
+        .unwrap_or_else(|| "connection test failed".to_owned())
+        .chars()
+        .take(220)
+        .collect()
 }

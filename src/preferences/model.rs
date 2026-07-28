@@ -65,7 +65,12 @@ pub struct MailPreferences {
     pub auto_forward_enabled: bool,
     pub auto_forward_address: Option<String>,
     pub auto_reply_enabled: bool,
+    pub auto_reply_subject: String,
     pub auto_reply_text: String,
+    pub auto_reply_start_at: Option<i64>,
+    pub auto_reply_end_at: Option<i64>,
+    pub auto_reply_account_ids: Vec<Uuid>,
+    pub auto_reply_contacts_only: bool,
 }
 
 impl Default for MailPreferences {
@@ -89,7 +94,12 @@ impl Default for MailPreferences {
             auto_forward_enabled: false,
             auto_forward_address: None,
             auto_reply_enabled: false,
+            auto_reply_subject: String::new(),
             auto_reply_text: String::new(),
+            auto_reply_start_at: None,
+            auto_reply_end_at: None,
+            auto_reply_account_ids: Vec::new(),
+            auto_reply_contacts_only: false,
         }
     }
 }
@@ -128,16 +138,56 @@ impl MailPreferences {
                 "auto-forward address is required".into(),
             ));
         }
+        self.auto_reply_subject = self.auto_reply_subject.trim().to_owned();
+        if self.auto_reply_subject.len() > 998 || self.auto_reply_subject.contains(['\r', '\n']) {
+            return Err(AppError::Validation("auto-reply subject is invalid".into()));
+        }
         self.auto_reply_text = self.auto_reply_text.trim().to_owned();
         if self.auto_reply_text.len() > 32 * 1024
             || self.auto_reply_text.chars().any(|value| value == '\0')
         {
             return Err(AppError::Validation("auto-reply text is invalid".into()));
         }
+        if self
+            .auto_reply_start_at
+            .is_some_and(|value| !(0..=4_102_444_800).contains(&value))
+            || self
+                .auto_reply_end_at
+                .is_some_and(|value| !(0..=4_102_444_800).contains(&value))
+            || self
+                .auto_reply_start_at
+                .zip(self.auto_reply_end_at)
+                .is_some_and(|(start, end)| end < start)
+        {
+            return Err(AppError::Validation(
+                "auto-reply schedule is invalid".into(),
+            ));
+        }
+        self.auto_reply_account_ids.sort_unstable();
+        self.auto_reply_account_ids.dedup();
         if self.auto_reply_enabled && self.auto_reply_text.is_empty() {
             return Err(AppError::Validation("auto-reply text is required".into()));
         }
         Ok(())
+    }
+
+    pub fn auto_reply_subject_for(&self, subject: &str) -> String {
+        if self.auto_reply_subject.is_empty() {
+            return prefixed_subject(self.reply_prefix(), subject);
+        }
+        self.auto_reply_subject.clone()
+    }
+
+    pub fn is_auto_reply_active_at(&self, timestamp: i64) -> bool {
+        self.auto_reply_enabled
+            && self
+                .auto_reply_start_at
+                .is_none_or(|start| timestamp >= start)
+            && self.auto_reply_end_at.is_none_or(|end| timestamp <= end)
+    }
+
+    pub fn applies_to_auto_reply_account(&self, account_id: Uuid) -> bool {
+        self.auto_reply_account_ids.is_empty() || self.auto_reply_account_ids.contains(&account_id)
     }
 
     pub fn reply_prefix(&self) -> &'static str {
@@ -152,6 +202,26 @@ impl MailPreferences {
             SubjectPrefixLanguage::Chinese => "转发：",
             SubjectPrefixLanguage::English => "Fwd:",
         }
+    }
+}
+
+fn prefixed_subject(prefix: &str, subject: &str) -> String {
+    let value = subject.trim();
+    if value.is_empty() {
+        return prefix.into();
+    }
+    let lower = value.to_ascii_lowercase();
+    let already_prefixed = lower.starts_with("re:")
+        || lower.starts_with("fw:")
+        || lower.starts_with("fwd:")
+        || value.starts_with("回复：")
+        || value.starts_with("转发：");
+    if already_prefixed {
+        value.into()
+    } else if prefix.ends_with('：') {
+        format!("{prefix}{value}")
+    } else {
+        format!("{prefix} {value}")
     }
 }
 

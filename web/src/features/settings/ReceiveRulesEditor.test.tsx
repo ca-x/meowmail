@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, test, vi } from "vitest"
 
@@ -78,3 +78,40 @@ test("edits a server-delete rule with an explicit warning and preserves its stru
   }))
   await waitFor(() => expect(onRulesChanged).toHaveBeenCalledWith([{ ...rule, name: "Remove archived alerts" }]))
 })
+
+test("saves a received-time filter from the framework date-time input", async () => {
+  const user = userEvent.setup()
+  const create = vi.spyOn(api, "createCleanupRule").mockResolvedValue({
+    ...rule,
+    id: "rule-2",
+    name: "Recent project mail",
+    conditions: [{ field: "receivedAt", operator: "after", values: ["1704067200"] }],
+  })
+  vi.spyOn(api, "cleanupRules").mockResolvedValue([])
+
+  render(
+    <Providers>
+      <ReceiveRulesEditor rules={[]} accounts={[account]} onRulesChanged={vi.fn()} onNotice={vi.fn()} />
+    </Providers>,
+  )
+
+  await user.click(screen.getByRole("button", { name: "Add rule" }))
+  const form = screen.getByRole("form", { name: "New incoming mail rule" })
+  await user.type(within(form).getByRole("textbox", { name: /^Rule name/ }), "Recent project mail")
+  await user.click(within(form).getByRole("combobox", { name: "Condition field" }))
+  await user.click(await screen.findByRole("option", { name: "Received time" }))
+  await user.click(within(form).getByRole("combobox", { name: "Match operator" }))
+  await user.click(await screen.findByRole("option", { name: "After" }))
+  fireEvent.change(within(form).getByLabelText("Condition values"), { target: { value: "01/01/2024" } })
+  fireEvent.change(within(form).getByLabelText("Condition values time"), { target: { value: "00:00" } })
+  await user.click(within(form).getByRole("button", { name: "Save rule" }))
+
+  await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({
+    name: "Recent project mail",
+    conditions: [{ field: "receivedAt", operator: "after", values: [localEpoch("2024-01-01T00:00")] }],
+  })))
+})
+
+function localEpoch(value: string) {
+  return String(Math.floor(new Date(value).getTime() / 1_000))
+}

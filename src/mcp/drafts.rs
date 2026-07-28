@@ -12,7 +12,7 @@ use crate::{
         entities::{email_draft, mail_account},
     },
     error::AppError,
-    messages::{ComposeInput, ThreadingHeaders},
+    messages::{ComposeAttachmentInput, ComposeInput, ThreadingHeaders},
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,6 +27,7 @@ pub struct EmailDraft {
     pub subject: String,
     pub text_body: String,
     pub html_body: Option<String>,
+    pub attachments: Vec<ComposeAttachmentInput>,
     pub signature_id: Option<Uuid>,
     pub apply_signature: bool,
     pub scheduled_at: Option<i64>,
@@ -88,6 +89,7 @@ impl StoredDraft {
             subject: self.draft.subject,
             text_body: self.draft.text_body,
             html_body: self.draft.html_body,
+            attachments: self.draft.attachments,
             signature_id: self.draft.signature_id,
             apply_signature: self.draft.apply_signature,
         }
@@ -153,6 +155,9 @@ impl DraftRepository {
             subject: Set(compose.subject),
             text_body: Set(compose.text_body),
             html_body: Set(compose.html_body),
+            attachments_json: Set(
+                serde_json::to_string(&compose.attachments).map_err(AppError::internal)?
+            ),
             signature_id: Set(compose.signature_id.map(|id| id.to_string())),
             apply_signature: Set(compose.apply_signature),
             in_reply_to: Set(threading.in_reply_to),
@@ -210,6 +215,8 @@ impl DraftRepository {
         active.subject = Set(compose.subject);
         active.text_body = Set(compose.text_body);
         active.html_body = Set(compose.html_body);
+        active.attachments_json =
+            Set(serde_json::to_string(&compose.attachments).map_err(AppError::internal)?);
         active.signature_id = Set(compose.signature_id.map(|id| id.to_string()));
         active.apply_signature = Set(compose.apply_signature);
         active.scheduled_at = Set(scheduled_at);
@@ -401,6 +408,8 @@ impl TryFrom<email_draft::Model> for EmailDraft {
             subject: model.subject,
             text_body: model.text_body,
             html_body: model.html_body,
+            attachments: serde_json::from_str(&model.attachments_json)
+                .map_err(AppError::internal)?,
             signature_id: model
                 .signature_id
                 .map(|id| Uuid::parse_str(&id).map_err(AppError::internal))

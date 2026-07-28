@@ -109,6 +109,17 @@ pub struct MessageInsertResult {
     pub created: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct OutgoingStoredMessage {
+    pub recipients: Vec<String>,
+    pub cc_recipients: Vec<String>,
+    pub bcc_recipients: Vec<String>,
+    pub subject: String,
+    pub body_text: String,
+    pub body_html: Option<String>,
+    pub attachments: Vec<MailAttachment>,
+}
+
 impl MessageRepository {
     pub fn new(db: Database) -> Self {
         Self { db }
@@ -405,6 +416,86 @@ impl MessageRepository {
             created: true,
         })
     }
+
+    pub async fn insert_sent(
+        &self,
+        user_id: Uuid,
+        account: &MailAccount,
+        input: OutgoingStoredMessage,
+    ) -> Result<(), AppError> {
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let message_id = Uuid::new_v4().to_string();
+        let thread_key = format!("sent:{message_id}");
+        let raw_size = input
+            .body_text
+            .len()
+            .saturating_add(input.body_html.as_deref().map_or(0, str::len))
+            .saturating_add(
+                input
+                    .attachments
+                    .iter()
+                    .map(|attachment| attachment.size)
+                    .sum::<usize>(),
+            );
+        let attachment_count =
+            i32::try_from(input.attachments.len()).map_err(AppError::internal)?;
+        let uid = synthetic_sent_uid(now);
+        let transaction = self.db.connection().begin().await?;
+        message::ActiveModel {
+            id: Set(message_id.clone()),
+            user_id: Set(Some(user_id.to_string())),
+            account_id: Set(account.id.to_string()),
+            folder: Set("Sent".into()),
+            uid: Set(uid),
+            uid_validity: Set(Some(0)),
+            message_id: Set(Some(format!("{message_id}@meowmail.local"))),
+            reply_to_email: Set(None),
+            references_header: Set("[]".into()),
+            sender_name: Set(Some(account.display_name.clone())),
+            sender_email: Set(account.email.clone()),
+            recipients_json: Set(
+                serde_json::to_string(&input.recipients).map_err(AppError::internal)?
+            ),
+            cc_recipients_json: Set(
+                serde_json::to_string(&input.cc_recipients).map_err(AppError::internal)?
+            ),
+            subject: Set(input.subject),
+            thread_key: Set(thread_key),
+            preview: Set(preview_from_body(&input.body_text)),
+            body_text: Set(input.body_text),
+            body_html: Set(input.body_html),
+            received_at: Set(now),
+            is_read: Set(true),
+            is_starred: Set(false),
+            attachment_count: Set(attachment_count),
+            raw_size: Set(i64::try_from(raw_size).map_err(AppError::internal)?),
+            is_promotional: Set(false),
+            auto_response_allowed: Set(false),
+            created_at: Set(now),
+        }
+        .insert(&transaction)
+        .await?;
+        replace_attachments(&transaction, &message_id, input.attachments).await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+}
+
+fn synthetic_sent_uid(timestamp: i64) -> i64 {
+    let mut bytes = [0_u8; 8];
+    let uuid = Uuid::new_v4();
+    bytes.copy_from_slice(&uuid.as_bytes()[..8]);
+    let suffix = i64::from_be_bytes(bytes).rem_euclid(1_000_000);
+    timestamp.saturating_mul(1_000_000).saturating_add(suffix)
+}
+
+fn preview_from_body(body: &str) -> String {
+    body.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(180)
+        .collect()
 }
 
 async fn replace_attachments(

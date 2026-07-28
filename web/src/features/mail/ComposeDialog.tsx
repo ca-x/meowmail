@@ -10,11 +10,11 @@ import { Token } from "@astryxdesign/core/Token"
 import { Tokenizer } from "@astryxdesign/core/Tokenizer"
 import { useToast } from "@astryxdesign/core/Toast"
 import { createStaticSource, type SearchableItem } from "@astryxdesign/core/Typeahead"
-import { AtSign, Clock3, FilePenLine, Paperclip, Send, UserRound } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react"
+import { AtSign, Clock3, FilePenLine, FileText, Paperclip, Send, Trash2, UserRound } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type FormEvent } from "react"
 
 import { api } from "../../app/api"
-import type { Contact, MailAccount, MailPreferences, Signature } from "../../app/types"
+import type { ComposeAttachmentInput, Contact, MailAccount, MailPreferences, Signature } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
 
@@ -27,6 +27,7 @@ export interface ComposeDraft {
   subject?: string
   body?: string
   htmlBody?: string | null
+  attachments?: ComposeAttachmentInput[]
   signatureId?: string | null
   applySignature?: boolean
   scheduledAt?: number | null
@@ -44,7 +45,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
   onSent: () => void
   onDraftSaved?: (scheduled: boolean) => void
 }) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const showToast = useToast()
   const discardDialog = useImperativeConfirmDialog()
   const editorRef = useRef<EmailEditorRef | null>(null)
@@ -65,6 +66,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
   const [subject, setSubject] = useState(draft?.subject || "")
   const [bodyRevision, setBodyRevision] = useState(0)
   const [bodyText, setBodyText] = useState(draft?.body || "")
+  const [composeAttachments, setComposeAttachments] = useState<ComposeAttachmentInput[]>(() => draft?.attachments || [])
   const [signatures, setSignatures] = useState<Signature[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [signatureId, setSignatureId] = useState<string>(initialSignature)
@@ -78,12 +80,14 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
     bcc: recipientItems(draft?.bcc || ""),
     subject: draft?.subject || "",
     bodyText: draft?.body || "",
+    attachments: draft?.attachments || [],
     signatureId: initialSignature,
     applySignature: draft?.applySignature ?? true,
     scheduled: Boolean(draft?.scheduledAt),
     scheduledAt: initialScheduledAt,
   }))
   const [busy, setBusy] = useState<"send" | "draft" | null>(null)
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const selectedAccount = accounts.find((account) => account.id === accountId)
   const selectedSignature = signatures.find((signature) => signature.id === signatureId) || null
   const currentFingerprint = useMemo(() => composeFingerprint({
@@ -93,12 +97,13 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
     bcc,
     subject,
     bodyText,
+    attachments: composeAttachments,
     signatureId,
     applySignature,
     scheduled,
     scheduledAt,
-  }), [accountId, applySignature, bcc, bodyText, cc, scheduled, scheduledAt, signatureId, subject, to])
-  const hasContent = Boolean(to.length || cc.length || bcc.length || subject || bodyText.trim())
+  }), [accountId, applySignature, bcc, bodyText, cc, composeAttachments, scheduled, scheduledAt, signatureId, subject, to])
+  const hasContent = Boolean(to.length || cc.length || bcc.length || subject || bodyText.trim() || composeAttachments.length)
   const dirty = draft?.id ? currentFingerprint !== initialFingerprint : hasContent
   const editorStyle = {
     "--compose-font-size": `${preferences.composeFontSize}px`,
@@ -126,6 +131,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
     setBcc(recipientItems(draft?.bcc || ""))
     setSubject(draft?.subject || "")
     setBodyText(draft?.body || "")
+    setComposeAttachments(draft?.attachments || [])
     setBodyRevision((value) => value + 1)
     const nextSignatureId = initialSignatureId(defaultAccount, draft)
     const nextScheduled = Boolean(draft?.scheduledAt)
@@ -142,6 +148,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
       bcc: recipientItems(draft?.bcc || ""),
       subject: draft?.subject || "",
       bodyText: draft?.body || "",
+      attachments: draft?.attachments || [],
       signatureId: nextSignatureId,
       applySignature: nextApplySignature,
       scheduled: nextScheduled,
@@ -207,6 +214,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
         subject,
         textBody: email.text,
         htmlBody: email.html,
+        attachments: composeAttachments,
         signatureId: signatureId === "none" ? null : signatureId,
         applySignature,
       }
@@ -239,6 +247,7 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
         subject,
         textBody: email.text,
         htmlBody: email.html,
+        attachments: composeAttachments,
         signatureId: signatureId === "none" ? null : signatureId,
         applySignature,
         scheduledAt: scheduled ? scheduledTimestamp(scheduledAt) : null,
@@ -264,6 +273,18 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
     return {
       html: email.html,
       text: email.text.trim() || fallbackText,
+    }
+  }
+
+  async function addAttachments(event: ChangeEvent<HTMLInputElement>) {
+    const files = [...(event.target.files || [])]
+    event.target.value = ""
+    if (!files.length) return
+    try {
+      const next = await attachmentsFromFiles([...composeAttachments], files)
+      setComposeAttachments(next)
+    } catch {
+      showToast({ body: t("attachmentTooLarge"), type: "error", uniqueID: "compose-attachment-error", collisionBehavior: "overwrite" })
     }
   }
 
@@ -381,12 +402,46 @@ export function ComposeDialog({ isOpen = true, accounts, activeAccountId, prefer
                       />
                     )}
                   </div>
+
+                  {composeAttachments.length > 0 && (
+                    <section className="compose-attachment-list" aria-label={t("attachmentFiles")}>
+                      <header>
+                        <span><Paperclip aria-hidden="true" />{t("attachmentCount", { count: composeAttachments.length })}</span>
+                        <small>{formatAttachmentTotal(composeAttachments, locale)}</small>
+                      </header>
+                      <ul>
+                        {composeAttachments.map((attachment, index) => (
+                          <li key={`${attachment.filename}:${attachment.size}:${index}`}>
+                            <span><FileText aria-hidden="true" /><strong>{attachment.filename}</strong><small>{formatFileSize(attachment.size, locale)}</small></span>
+                            <IconButton
+                              label={`${t("removeAttachment")}: ${attachment.filename}`}
+                              icon={<Trash2 aria-hidden="true" />}
+                              variant="ghost"
+                              size="sm"
+                              isDisabled={Boolean(busy)}
+                              onClick={() => setComposeAttachments((items) => items.filter((item) => item !== attachment))}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
                 </div>
               </LayoutContent>
             }
             footer={
               <LayoutFooter className="compose-dialog-footer" padding={3} hasDivider>
-                <IconButton label={t("attachmentsComingSoon")} icon={<Paperclip aria-hidden="true" />} variant="ghost" isDisabled tooltip={t("attachmentsComingSoon")} />
+                <span className="compose-attachment-action">
+                  <input ref={attachmentInputRef} type="file" multiple onChange={(event) => void addAttachments(event)} />
+                  <IconButton
+                    label={t("addAttachment")}
+                    icon={<Paperclip aria-hidden="true" />}
+                    variant="ghost"
+                    isDisabled={Boolean(busy)}
+                    tooltip={t("addAttachment")}
+                    onClick={() => attachmentInputRef.current?.click()}
+                  />
+                </span>
                 <span className="compose-dialog-actions">
                   <Button label={t("cancel")} variant="secondary" isDisabled={Boolean(busy)} onClick={() => void requestClose()} />
                   <Button
@@ -437,6 +492,7 @@ function composeFingerprint(value: {
   bcc: RecipientItem[]
   subject: string
   bodyText: string
+  attachments: ComposeAttachmentInput[]
   signatureId: string
   applySignature: boolean
   scheduled: boolean
@@ -449,11 +505,59 @@ function composeFingerprint(value: {
     bcc: value.bcc.map(addressOf).map((address) => address.trim().toLowerCase()).filter(Boolean),
     subject: value.subject,
     bodyText: value.bodyText.trim(),
+    attachments: value.attachments.map((attachment) => `${attachment.filename}:${attachment.size}:${attachment.contentBase64.length}`),
     signatureId: value.signatureId,
     applySignature: value.applySignature,
     scheduled: value.scheduled,
     scheduledAt: value.scheduled ? value.scheduledAt || "" : "",
   })
+}
+
+async function attachmentsFromFiles(current: ComposeAttachmentInput[], files: File[]) {
+  const next = [...current]
+  for (const file of files) {
+    if (file.size <= 0 || file.size > MAX_ATTACHMENT_BYTES) throw new Error("attachment too large")
+    const total = next.reduce((sum, attachment) => sum + attachment.size, 0) + file.size
+    if (total > MAX_ATTACHMENT_TOTAL_BYTES || next.length >= MAX_ATTACHMENT_COUNT) throw new Error("attachment too large")
+    next.push({
+      filename: file.name || "attachment",
+      contentType: file.type || "application/octet-stream",
+      contentBase64: await fileToBase64(file),
+      size: file.size,
+    })
+  }
+  return next
+}
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener("load", () => {
+      const value = String(reader.result || "")
+      resolve(value.includes(",") ? value.split(",").pop() || "" : value)
+    })
+    reader.addEventListener("error", () => reject(reader.error || new Error("file read failed")))
+    reader.readAsDataURL(file)
+  })
+}
+
+const MAX_ATTACHMENT_COUNT = 10
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+const MAX_ATTACHMENT_TOTAL_BYTES = 8 * 1024 * 1024
+
+function formatAttachmentTotal(attachments: ComposeAttachmentInput[], locale: string) {
+  return formatFileSize(attachments.reduce((sum, attachment) => sum + attachment.size, 0), locale)
+}
+
+function formatFileSize(size: number, locale: string) {
+  const units = ["B", "KB", "MB", "GB"]
+  let value = Math.max(0, size)
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: unit ? 1 : 0 }).format(value)} ${units[unit]}`
 }
 
 function RecipientRow({ label, value, onChange, source, placeholder, required = false }: {

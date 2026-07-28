@@ -150,6 +150,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
                 messages={workspace.messages}
                 drafts={workspace.drafts}
                 selectedId={workspace.selectedId}
+                selectedMessageIds={workspace.selectedMessageIds}
                 loading={workspace.loading}
                 syncing={workspace.syncing}
                 deleting={workspace.deleting}
@@ -161,6 +162,9 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
                 onAddAccount={() => openAccountDialog(null)}
                 onSelect={(message) => void workspace.selectMessage(message)}
                 onToggleStar={(message) => void workspace.toggleStar(message)}
+                onToggleMessageSelection={workspace.toggleMessageSelection}
+                onClearMessageSelection={workspace.clearMessageSelection}
+                onBulkDeleteMessages={() => void workspace.bulkDeleteMessages()}
                 onOpenDraft={workspace.openDraft}
                 onSendDraft={(draft) => void workspace.sendDraft(draft)}
                 onDeleteDraft={(draft) => {

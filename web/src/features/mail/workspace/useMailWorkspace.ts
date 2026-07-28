@@ -19,6 +19,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [drafts, setDrafts] = useState<EmailDraft[]>([])
   const [mailPreferences, setMailPreferences] = useState<MailPreferences>(defaultMailPreferences)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(() => new Set())
   const [detail, setDetail] = useState<MessageDetail | null>(null)
   const [thread, setThread] = useState<MessageDetail[]>([])
   const [filter, setFilter] = useState<MailFilter>("inbox")
@@ -74,7 +75,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
     setLoading(true)
     try {
-      const params = new URLSearchParams({ folder: "INBOX", limit: "120" })
+      const params = new URLSearchParams({ folder: filter === "sent" ? "Sent" : "INBOX", limit: "120" })
       if (activeAccountId) params.set("accountId", activeAccountId)
       if (filter === "unread") params.set("unread", "true")
       if (filter === "starred") params.set("starred", "true")
@@ -82,6 +83,12 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       if (query) params.set("q", query)
       const next = await api.messages(params)
       setMessages(next)
+      setSelectedMessageIds((selected) => {
+        if (!selected.size) return selected
+        const available = new Set(next.map((message) => message.id))
+        const kept = new Set([...selected].filter((id) => available.has(id)))
+        return kept.size === selected.size ? selected : kept
+      })
       const currentSelection = selectedIdRef.current
       if (currentSelection && !next.some((message) => message.id === currentSelection)) {
         selectedIdRef.current = null
@@ -184,6 +191,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     setSelectedId(null)
     setDetail(null)
     setThread([])
+    setSelectedMessageIds(new Set())
     setMobileView("list")
     setSidebarOpen(false)
     if (id) writeStoredValue("meowmail-account", id)
@@ -192,6 +200,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   const chooseFilter = useCallback((next: MailFilter) => {
     setFilter(next)
+    setSelectedMessageIds(new Set())
     if (next === "drafts") {
       selectedIdRef.current = null
       setSelectedId(null)
@@ -288,6 +297,51 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }, [detail, mailPreferences.afterAction, messages, notify, selectMessage])
 
+  const toggleMessageSelection = useCallback((id: string, selected?: boolean) => {
+    setSelectedMessageIds((current) => {
+      const next = new Set(current)
+      const shouldSelect = selected ?? !next.has(id)
+      if (shouldSelect) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
+
+  const clearMessageSelection = useCallback(() => {
+    setSelectedMessageIds(new Set())
+  }, [])
+
+  const bulkDeleteMessages = useCallback(async () => {
+    if (!selectedMessageIds.size || deletingRef.current) return
+    deletingRef.current = true
+    setDeleting(true)
+    const ids = [...selectedMessageIds]
+    const idSet = new Set(ids)
+    let deleted = 0
+    try {
+      for (const id of ids) {
+        await api.deleteMessage(id)
+        deleted += 1
+      }
+      setMessages((items) => items.filter((message) => !idSet.has(message.id)))
+      setSelectedMessageIds(new Set())
+      if (detail && idSet.has(detail.id)) {
+        selectedIdRef.current = null
+        setSelectedId(null)
+        setDetail(null)
+        setThread([])
+        setMobileView("list")
+      }
+      notify("messagesDeletedSuccess", { count: deleted })
+    } catch {
+      await loadMessages()
+      notify(deleted > 0 ? "messagesDeletePartial" : "genericError", { count: deleted }, "error")
+    } finally {
+      deletingRef.current = false
+      setDeleting(false)
+    }
+  }, [detail, loadMessages, notify, selectedMessageIds])
+
   const openDraft = useCallback((draft: EmailDraft) => {
     setSidebarOpen(false)
     setComposeDraft({
@@ -299,6 +353,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       subject: draft.subject,
       body: draft.textBody,
       htmlBody: draft.htmlBody,
+      attachments: draft.attachments,
       signatureId: draft.signatureId,
       applySignature: draft.applySignature,
       scheduledAt: draft.scheduledAt,
@@ -341,11 +396,11 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   return {
     accounts, setAccounts, activeAccountId, activeAccount, messages, drafts, mailPreferences, setMailPreferences,
-    selectedId, detail, thread, filter, search, setSearch, loading, detailLoading, syncing, deleting,
+    selectedId, selectedMessageIds, detail, thread, filter, search, setSearch, loading, detailLoading, syncing, deleting,
     draftBusyId, composeDraft, setComposeDraft, settingsOpen, setSettingsOpen, contactsOpen, setContactsOpen, accountManagerOpen, setAccountManagerOpen, accountDialog, setAccountDialog,
     mobileView, setMobileView, sidebarOpen, setSidebarOpen, searchRef, notify, loadAccounts, loadDrafts,
     chooseAccount, chooseFilter, selectMessage, toggleStar, toggleRead, sync, replyToMessage,
-    forwardMessage, deleteMessage, openDraft, deleteDraft, sendDraft, logout,
+    forwardMessage, deleteMessage, toggleMessageSelection, clearMessageSelection, bulkDeleteMessages, openDraft, deleteDraft, sendDraft, logout,
   }
 }
 

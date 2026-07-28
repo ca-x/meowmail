@@ -32,7 +32,12 @@ export function MailExperienceSettings({
   async function savePreferences() {
     setSaving(true)
     try {
-      const saved = await api.updateMailPreferences(preferences)
+      const availableAccountIds = new Set(accounts.map((account) => account.id))
+      const nextPreferences = {
+        ...preferences,
+        autoReplyAccountIds: preferences.autoReplyAccountIds.filter((id) => availableAccountIds.has(id)),
+      }
+      const saved = await api.updateMailPreferences(nextPreferences)
       setPreferences(saved)
       onPreferencesChanged(saved)
       onNotice("mailPreferencesSaved")
@@ -55,7 +60,7 @@ export function MailExperienceSettings({
         onNotice={onNotice}
       />
       <div className="settings-subsection-divider" />
-      <MailReplyPreferences preferences={preferences} onChange={setPreferences} />
+      <MailReplyPreferences preferences={preferences} accounts={accounts} onChange={setPreferences} />
       <div className="mail-preferences-save-bar">
         <span>{t("mailPreferencesSaveHint")}</span>
         <Button

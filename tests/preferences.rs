@@ -147,6 +147,71 @@ async fn mail_preferences_and_signatures_are_isolated_per_user() {
     );
 }
 
+#[tokio::test]
+async fn vacation_reply_preferences_round_trip_and_validate_schedule() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::initialize(
+        Config::new(
+            "correct horse battery staple".into(),
+            directory.path().to_path_buf(),
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+    let users = UserRepository::new(state.db.clone());
+    let admin = users
+        .authenticate_local("admin", "correct horse battery staple")
+        .await
+        .unwrap();
+    let other = users
+        .provision_oidc(
+            "https://issuer.example",
+            "vacation-preferences-user",
+            Some("vacation@example.com"),
+            Some("Vacation Preferences User"),
+            false,
+        )
+        .await
+        .unwrap();
+    let preferences = PreferencesRepository::new(state.db.clone());
+
+    let mut mail_preferences = preferences.mail(admin.id).await.unwrap();
+    mail_preferences.auto_reply_enabled = true;
+    mail_preferences.auto_reply_subject = "Out of office".into();
+    mail_preferences.auto_reply_text = "I am away this week.".into();
+    mail_preferences.auto_reply_start_at = Some(1_798_761_600);
+    mail_preferences.auto_reply_end_at = Some(1_799_020_800);
+    mail_preferences.auto_reply_account_ids = vec![other.id, admin.id, admin.id];
+    mail_preferences.auto_reply_contacts_only = true;
+
+    let saved = preferences
+        .update_mail(admin.id, mail_preferences.clone())
+        .await
+        .unwrap();
+    mail_preferences.auto_reply_account_ids = saved.auto_reply_account_ids.clone();
+    assert_eq!(saved, mail_preferences);
+    assert!(saved.is_auto_reply_active_at(1_798_800_000));
+    assert!(!saved.is_auto_reply_active_at(1_799_200_000));
+    let mut expected_account_ids = vec![admin.id, other.id];
+    expected_account_ids.sort_unstable();
+    assert_eq!(saved.auto_reply_account_ids, expected_account_ids);
+    assert!(saved.applies_to_auto_reply_account(admin.id));
+    assert!(!saved.applies_to_auto_reply_account(uuid::Uuid::new_v4()));
+    assert_eq!(
+        saved.auto_reply_subject_for("Project update"),
+        "Out of office"
+    );
+
+    let mut invalid = saved;
+    invalid.auto_reply_start_at = Some(200);
+    invalid.auto_reply_end_at = Some(100);
+    assert!(matches!(
+        preferences.update_mail(admin.id, invalid).await,
+        Err(AppError::Validation(_))
+    ));
+}
+
 fn account(display_name: &str, email: &str) -> AccountInput {
     AccountInput {
         display_name: display_name.into(),

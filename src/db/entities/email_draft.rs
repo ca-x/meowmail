@@ -14,6 +14,7 @@ pub struct Model {
     pub subject: String,
     pub text_body: String,
     pub html_body: Option<String>,
+    pub attachments_json: String,
     pub signature_id: Option<String>,
     pub apply_signature: bool,
     pub in_reply_to: Option<String>,

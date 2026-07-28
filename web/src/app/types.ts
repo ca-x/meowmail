@@ -141,7 +141,12 @@ export interface MailPreferences {
   autoForwardEnabled: boolean
   autoForwardAddress?: string | null
   autoReplyEnabled: boolean
+  autoReplySubject: string
   autoReplyText: string
+  autoReplyStartAt?: number | null
+  autoReplyEndAt?: number | null
+  autoReplyAccountIds: string[]
+  autoReplyContactsOnly: boolean
 }
 
 export interface SignatureInput {
@@ -182,6 +187,7 @@ export interface EmailDraft {
   subject: string
   textBody: string
   htmlBody?: string | null
+  attachments: ComposeAttachmentInput[]
   signatureId?: string | null
   applySignature: boolean
   scheduledAt?: number | null
@@ -189,6 +195,13 @@ export interface EmailDraft {
   status: EmailDraftStatus
   createdAt: number
   updatedAt: number
+}
+
+export interface ComposeAttachmentInput {
+  filename: string
+  contentType: string
+  contentBase64: string
+  size: number
 }
 
 export interface ComposeMessageInput {
@@ -199,12 +212,20 @@ export interface ComposeMessageInput {
   subject: string
   textBody: string
   htmlBody?: string | null
+  attachments?: ComposeAttachmentInput[]
   signatureId?: string | null
   applySignature?: boolean
 }
 
 export interface DraftInput extends ComposeMessageInput {
   scheduledAt?: number | null
+}
+
+export interface ConnectionTestResponse {
+  imap: boolean
+  smtp: boolean
+  imapError?: string | null
+  smtpError?: string | null
 }
 
 export interface McpSettings {

@@ -1,5 +1,6 @@
 import { Avatar } from "@astryxdesign/core/Avatar"
 import { Button } from "@astryxdesign/core/Button"
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput"
 import { EmptyState } from "@astryxdesign/core/EmptyState"
 import { IconButton } from "@astryxdesign/core/IconButton"
 import { Item } from "@astryxdesign/core/Item"
@@ -12,13 +13,16 @@ import { defaultMailPreferences } from "../../app/mailPreferences"
 import type { MailPreferences, MessageSummary } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 
-export function MessageList({ messages, selectedId, loading, preferences = defaultMailPreferences, onSelect, onToggleStar }: {
+export function MessageList({ messages, selectedId, selectedIds = new Set(), loading, preferences = defaultMailPreferences, selectionDisabled = false, onSelect, onToggleStar, onToggleSelection }: {
   messages: MessageSummary[]
   selectedId: string | null
+  selectedIds?: Set<string>
   loading: boolean
   preferences?: MailPreferences
+  selectionDisabled?: boolean
   onSelect: (message: MessageSummary) => void
   onToggleStar: (message: MessageSummary) => void
+  onToggleSelection?: (id: string, selected?: boolean) => void
 }) {
   const { locale, t } = useI18n()
   const [promotionsExpanded, setPromotionsExpanded] = useState(false)
@@ -72,12 +76,13 @@ export function MessageList({ messages, selectedId, loading, preferences = defau
       <List className="message-list" density={preferences.listDensity === "compact" ? "compact" : "balanced"} hasDividers>
         {groups.map(({ message, count }, index) => {
           const isSelected = message.id === selectedId
+          const isChecked = selectedIds.has(message.id)
           return (
             <Item
               key={message.id}
               as="li"
               role="listitem"
-              className={`message-item ${message.isRead ? "is-read" : "is-unread"}`}
+              className={`message-item ${message.isRead ? "is-read" : "is-unread"}${isChecked ? " is-checked" : ""}`}
               aria-current={isSelected ? "true" : undefined}
               tabIndex={isSelected || (!selectedId && index === 0) ? 0 : -1}
               align="start"
@@ -91,7 +96,20 @@ export function MessageList({ messages, selectedId, loading, preferences = defau
                   onSelect(message)
                 }
               }}
-              startContent={<Avatar name={message.senderName || message.senderEmail} size="md" />}
+              startContent={
+                <span className="message-item-start">
+                  <CheckboxInput
+                    label={t("selectMessage")}
+                    isLabelHidden
+                    value={isChecked}
+                    isDisabled={selectionDisabled}
+                    onChange={(checked) => onToggleSelection?.(message.id, checked)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  />
+                  <Avatar name={message.senderName || message.senderEmail} size="md" />
+                </span>
+              }
               label={
                 <span className="message-item-heading">
                   <strong>{message.senderName || message.senderEmail}</strong>
