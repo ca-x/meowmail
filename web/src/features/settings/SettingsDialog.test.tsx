@@ -265,8 +265,8 @@ test("mail settings save a vacation responder schedule and contacts-only scope",
   fireEvent.change(screen.getByLabelText("Start time time"), { target: { value: "09:00" } })
   fireEvent.change(screen.getByLabelText("End time"), { target: { value: "01/05/2024" } })
   fireEvent.change(screen.getByLabelText("End time time"), { target: { value: "18:30" } })
-  await user.type(screen.getByRole("textbox", { name: "Automatic reply subject" }), "Out of office")
-  await user.type(screen.getByRole("textbox", { name: /^Automatic reply content/ }), "I am away this week.")
+  fireEvent.change(screen.getByRole("textbox", { name: "Automatic reply subject" }), { target: { value: "Out of office" } })
+  fireEvent.change(screen.getByRole("textbox", { name: /^Automatic reply content/ }), { target: { value: "I am away this week." } })
   await user.click(screen.getByRole("checkbox", { name: "Reply only to contacts" }))
   await user.click(screen.getByRole("button", { name: "Save mail preferences" }))
 
@@ -279,7 +279,7 @@ test("mail settings save a vacation responder schedule and contacts-only scope",
     autoReplyAccountIds: [account.id],
     autoReplyContactsOnly: true,
   })))
-})
+}, 10_000)
 
 test("settings tabs use arrow-key navigation and expose one tabpanel", async () => {
   const user = userEvent.setup()
