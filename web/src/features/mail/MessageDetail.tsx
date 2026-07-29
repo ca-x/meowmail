@@ -9,7 +9,7 @@ import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/Segme
 import { Skeleton } from "@astryxdesign/core/Skeleton"
 import { Toolbar } from "@astryxdesign/core/Toolbar"
 import { useToast } from "@astryxdesign/core/Toast"
-import { ArrowLeft, CornerUpLeft, Download, Eye, FileText, Forward, Languages, MailOpen, ShieldCheck, Star, Tags, Trash2, X } from "lucide-react"
+import { ArrowLeft, CornerUpLeft, Download, Eye, FileText, Forward, Languages, MailOpen, RefreshCw, ShieldCheck, Star, Tags, Trash2, X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { api } from "../../app/api"
@@ -18,11 +18,12 @@ import { useI18n } from "../../i18n/I18nProvider"
 import { useTheme } from "../../theme/ThemeProvider"
 import { AttachmentPreviewDialog } from "./AttachmentPreviewDialog"
 
-export function MessageDetail({ message, thread, loading, isDeleting = false, preferences, aiEnabled = false, onBack, onToggleStar, onToggleRead, onReply, onForward, onDelete }: {
+export function MessageDetail({ message, thread, loading, isDeleting = false, isRefreshingAttachments = false, preferences, aiEnabled = false, onBack, onToggleStar, onToggleRead, onReply, onForward, onDelete, onRefreshAttachments }: {
   message: Detail | null
   thread: Detail[]
   loading: boolean
   isDeleting?: boolean
+  isRefreshingAttachments?: boolean
   preferences: MailPreferences
   aiEnabled?: boolean
   onBack: () => void
@@ -31,6 +32,7 @@ export function MessageDetail({ message, thread, loading, isDeleting = false, pr
   onReply: () => void
   onForward: () => void
   onDelete: () => void
+  onRefreshAttachments?: () => void
 }) {
   const { locale, t } = useI18n()
   const { resolved: themeMode } = useTheme()
@@ -226,7 +228,22 @@ export function MessageDetail({ message, thread, loading, isDeleting = false, pr
                     />
                   ))}
                 </List>
-              ) : <p className="attachment-metadata-pending">{t("attachmentMetadataPending")}</p>}
+              ) : (
+                <div className="attachment-metadata-pending">
+                  <p>{t("attachmentMetadataPending")}</p>
+                  {onRefreshAttachments && (
+                    <Button
+                      label={t("syncAttachmentMetadata")}
+                      icon={<RefreshCw aria-hidden="true" />}
+                      variant="secondary"
+                      size="sm"
+                      isLoading={isRefreshingAttachments}
+                      isDisabled={isRefreshingAttachments}
+                      onClick={onRefreshAttachments}
+                    />
+                  )}
+                </div>
+              )}
             </section>
           )}
 

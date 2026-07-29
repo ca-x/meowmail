@@ -3141,7 +3141,7 @@ dependencies = [
 
 [[package]]
 name = "meowmail"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -3151,6 +3151,7 @@ dependencies = [
  "axum",
  "base64 0.23.0",
  "chacha20poly1305 0.11.0",
+ "chrono",
  "claude-sdk",
  "cookie",
  "fast-dav-rs",

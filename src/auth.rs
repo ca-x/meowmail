@@ -1,23 +1,24 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
     time::{Duration, Instant},
 };
 
 use axum::{
     Json, Router,
     extract::{FromRequestParts, Query, State},
-    http::{HeaderMap, HeaderValue, header, request::Parts},
+    http::{HeaderMap, HeaderValue, StatusCode, header, request::Parts},
     response::Redirect,
     routing::{get, post, put},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use cookie::{Cookie, SameSite};
 use openidconnect::{
-    AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
-    EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
-    core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
+    AccessTokenHash, AuthorizationCode, ClaimsVerificationError, ClientId, ClientSecret, CsrfToken,
+    EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, SignatureVerificationError,
+    TokenResponse,
+    core::{CoreAuthenticationFlow, CoreClient, CoreIdToken, CoreProviderMetadata},
     reqwest,
 };
 use rand::Rng;
@@ -49,18 +50,27 @@ type ConfiguredOidcClient = CoreClient<
 
 #[derive(Clone)]
 pub struct OidcService {
-    client: ConfiguredOidcClient,
+    client: Arc<RwLock<OidcClientState>>,
     http: reqwest::Client,
+    config: OidcConfig,
     issuer: String,
     scopes: Vec<String>,
     first_user_admin: bool,
     flows: Arc<Mutex<HashMap<String, OidcFlow>>>,
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 struct OidcFlow {
+    client: ConfiguredOidcClient,
+    client_generation: u64,
     nonce: Nonce,
     verifier: PkceCodeVerifier,
     expires_at: Instant,
+}
+
+struct OidcClientState {
+    client: ConfiguredOidcClient,
+    generation: u64,
 }
 
 impl OidcService {
@@ -69,9 +79,29 @@ impl OidcService {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(15))
             .build()?;
+        let client = Self::discover_client(config, &http).await?;
+        Ok(Self {
+            client: Arc::new(RwLock::new(OidcClientState {
+                client,
+                generation: 0,
+            })),
+            http,
+            config: config.clone(),
+            issuer: config.issuer.to_string().trim_end_matches('/').to_owned(),
+            scopes: config.scopes.clone(),
+            first_user_admin: config.first_user_admin,
+            flows: Arc::new(Mutex::new(HashMap::new())),
+            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+        })
+    }
+
+    async fn discover_client(
+        config: &OidcConfig,
+        http: &reqwest::Client,
+    ) -> anyhow::Result<ConfiguredOidcClient> {
         let issuer = IssuerUrl::new(config.issuer.to_string())?;
-        let metadata = CoreProviderMetadata::discover_async(issuer, &http).await?;
-        let client = CoreClient::from_provider_metadata(
+        let metadata = CoreProviderMetadata::discover_async(issuer, http).await?;
+        Ok(CoreClient::from_provider_metadata(
             metadata,
             ClientId::new(config.client_id.clone()),
             config
@@ -79,20 +109,52 @@ impl OidcService {
                 .as_ref()
                 .map(|value| ClientSecret::new(value.expose_secret().to_owned())),
         )
-        .set_redirect_uri(RedirectUrl::new(config.redirect_url.to_string())?);
-        Ok(Self {
-            client,
-            http,
-            issuer: config.issuer.to_string().trim_end_matches('/').to_owned(),
-            scopes: config.scopes.clone(),
-            first_user_admin: config.first_user_admin,
-            flows: Arc::new(Mutex::new(HashMap::new())),
-        })
+        .set_redirect_uri(RedirectUrl::new(config.redirect_url.to_string())?))
+    }
+
+    fn client(&self) -> (ConfiguredOidcClient, u64) {
+        let state = self.client.read().expect("OIDC client lock poisoned");
+        (state.client.clone(), state.generation)
+    }
+
+    async fn refresh_client(
+        &self,
+        observed_generation: u64,
+        id_token: &CoreIdToken,
+        nonce: &Nonce,
+    ) -> Result<ConfiguredOidcClient, AppError> {
+        let _refresh_guard = self.refresh_lock.lock().await;
+        {
+            let state = self.client.read().expect("OIDC client lock poisoned");
+            if state.generation != observed_generation {
+                let verifier = state.client.id_token_verifier();
+                if id_token.claims(&verifier, nonce).is_ok() {
+                    return Ok(state.client.clone());
+                }
+            }
+        }
+        let client = Self::discover_client(&self.config, &self.http)
+            .await
+            .map_err(|error| {
+                tracing::warn!(error = ?error, "failed to refresh OIDC provider metadata");
+                AppError::Unauthorized
+            })?;
+        {
+            let verifier = client.id_token_verifier();
+            id_token
+                .claims(&verifier, nonce)
+                .map_err(|_| AppError::Unauthorized)?;
+        }
+        let mut state = self.client.write().expect("OIDC client lock poisoned");
+        state.client = client.clone();
+        state.generation = state.generation.wrapping_add(1);
+        Ok(client)
     }
 
     fn authorization_url(&self) -> url::Url {
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
-        let mut request = self.client.authorize_url(
+        let (client, client_generation) = self.client();
+        let mut request = client.authorize_url(
             CoreAuthenticationFlow::AuthorizationCode,
             CsrfToken::new_random,
             Nonce::new_random,
@@ -116,6 +178,8 @@ impl OidcService {
         flows.insert(
             state.secret().to_owned(),
             OidcFlow {
+                client,
+                client_generation,
                 nonce,
                 verifier,
                 expires_at: Instant::now() + OIDC_FLOW_TTL,
@@ -279,20 +343,45 @@ async fn oidc_callback(
     let oidc = state.oidc.as_ref().ok_or(AppError::NotFound)?;
     let code = query.code.ok_or(AppError::Unauthorized)?;
     let returned_state = query.state.ok_or(AppError::Unauthorized)?;
-    let flow = oidc.take_flow(&returned_state)?;
-    let token_response = oidc
-        .client
+    let OidcFlow {
+        client,
+        client_generation,
+        nonce,
+        verifier: pkce_verifier,
+        ..
+    } = oidc.take_flow(&returned_state)?;
+    let token_response = client
         .exchange_code(AuthorizationCode::new(code))
         .map_err(|_| AppError::Unauthorized)?
-        .set_pkce_verifier(flow.verifier)
+        .set_pkce_verifier(pkce_verifier)
         .request_async(&oidc.http)
         .await
         .map_err(|_| AppError::Unauthorized)?;
     let id_token = token_response.id_token().ok_or(AppError::Unauthorized)?;
-    let verifier = oidc.client.id_token_verifier();
-    let claims = id_token
-        .claims(&verifier, &flow.nonce)
-        .map_err(|_| AppError::Unauthorized)?;
+    let refreshed_client;
+    let mut verifier = client.id_token_verifier();
+    let claims = match id_token.claims(&verifier, &nonce) {
+        Ok(claims) => claims,
+        Err(error)
+            if matches!(
+                error,
+                ClaimsVerificationError::SignatureVerification(
+                    SignatureVerificationError::NoMatchingKey
+                        | SignatureVerificationError::CryptoError(_)
+                )
+            ) =>
+        {
+            tracing::warn!(error = ?error, "OIDC ID token verification failed; refreshing provider metadata");
+            refreshed_client = oidc
+                .refresh_client(client_generation, id_token, &nonce)
+                .await?;
+            verifier = refreshed_client.id_token_verifier();
+            id_token
+                .claims(&verifier, &nonce)
+                .map_err(|_| AppError::Unauthorized)?
+        }
+        Err(_) => return Err(AppError::Unauthorized),
+    };
     if let Some(expected_hash) = claims.access_token_hash() {
         let actual_hash = AccessTokenHash::from_token(
             token_response.access_token(),
@@ -324,12 +413,15 @@ async fn oidc_callback(
     ))
 }
 
-async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<HeaderMap, AppError> {
+async fn logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, HeaderMap), AppError> {
     let current = current_session(&state, &headers)?;
     require_csrf(&headers, &current.csrf_token)?;
     let token = cookie_value(&headers, SESSION_COOKIE).ok_or(AppError::Unauthorized)?;
     state.sessions.remove(&token);
-    expired_cookie_headers()
+    Ok((StatusCode::NO_CONTENT, expired_cookie_headers()?))
 }
 
 async fn lock(

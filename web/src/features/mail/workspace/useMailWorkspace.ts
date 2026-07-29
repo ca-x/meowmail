@@ -28,6 +28,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [refreshingAttachments, setRefreshingAttachments] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [draftBusyId, setDraftBusyId] = useState<string | null>(null)
   const [composeDraft, setComposeDraft] = useState<ComposeDraft | null | undefined>(undefined)
@@ -245,6 +246,26 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }, [accounts, activeAccount, loadAccounts, loadMessages, notify, syncing])
 
+  const refreshAttachments = useCallback(async () => {
+    if (!detail || refreshingAttachments || deletingRef.current) return
+    const targetId = detail.id
+    setRefreshingAttachments(true)
+    try {
+      const refreshed = await api.refreshMessage(targetId)
+      if (selectedIdRef.current !== targetId) return
+      setDetail(refreshed)
+      setThread((items) => items.map((item) => item.id === refreshed.id ? refreshed : item))
+      setMessages((items) => items.map((item) => item.id === refreshed.id ? refreshed : item))
+      notify("attachmentMetadataRefreshed")
+    } catch (error) {
+      if (selectedIdRef.current === targetId) {
+        notify(error instanceof ApiError && error.status === 409 ? "mailboxBusy" : "genericError", undefined, "error")
+      }
+    } finally {
+      setRefreshingAttachments(false)
+    }
+  }, [detail, notify, refreshingAttachments])
+
   const replyToMessage = useCallback(() => {
     if (!detail) return
     const sender = detail.senderName ? `${detail.senderName} <${detail.senderEmail}>` : detail.senderEmail
@@ -401,10 +422,10 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   return {
     accounts, setAccounts, activeAccountId, activeAccount, messages, drafts, mailPreferences, setMailPreferences,
-    selectedId, selectedMessageIds, detail, thread, filter, search, setSearch, loading, detailLoading, syncing, deleting,
+    selectedId, selectedMessageIds, detail, thread, filter, search, setSearch, loading, detailLoading, syncing, refreshingAttachments, deleting,
     draftBusyId, composeDraft, setComposeDraft, settingsOpen, setSettingsOpen, contactsOpen, setContactsOpen, accountManagerOpen, setAccountManagerOpen, accountDialog, setAccountDialog,
     mobileView, setMobileView, sidebarOpen, setSidebarOpen, searchRef, notify, loadAccounts, loadDrafts,
-    chooseAccount, chooseFilter, selectMessage, toggleStar, toggleRead, sync, replyToMessage,
+    chooseAccount, chooseFilter, selectMessage, toggleStar, toggleRead, sync, refreshAttachments, replyToMessage,
     forwardMessage, deleteMessage, toggleMessageSelection, clearMessageSelection, bulkDeleteMessages, openDraft, deleteDraft, sendDraft, logout,
   }
 }

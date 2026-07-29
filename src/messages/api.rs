@@ -45,6 +45,7 @@ pub fn routes() -> Router<AppState> {
                 .patch(update_message)
                 .delete(delete_message),
         )
+        .route("/messages/{id}/refresh", post(refresh_message))
         .route("/messages/{id}/thread", get(get_thread))
         .route(
             "/messages/{message_id}/attachments/{attachment_id}",
@@ -127,6 +128,84 @@ async fn get_message(
             .get(session.user_id, id)
             .await?,
     ))
+}
+
+async fn refresh_message(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    mutation: MutationSession,
+) -> Result<Json<MessageDetail>, AppError> {
+    tokio::time::timeout(
+        MAILBOX_MUTATION_TIMEOUT,
+        refresh_message_inner(state, mutation.0.user_id, id),
+    )
+    .await
+    .map_err(|_| AppError::Mail("IMAP message refresh timed out".into()))?
+}
+
+async fn refresh_message_inner(
+    state: AppState,
+    user_id: Uuid,
+    id: Uuid,
+) -> Result<Json<MessageDetail>, AppError> {
+    let repository = MessageRepository::new(state.db.clone());
+    let message = repository.get(user_id, id).await?;
+    let account_id = message.summary.account_id;
+    let _mailbox_guard = state
+        .mailbox_locks
+        .try_lock(user_id, account_id)
+        .ok_or(AppError::Conflict)?;
+    let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
+    let (account, secrets, proxy) = accounts.get_with_secrets(user_id, account_id).await?;
+    let mut session = connect_imap_session(&account, &secrets, &proxy)
+        .await
+        .map_err(|error| AppError::Mail(error.to_string()))?;
+    let mailbox = session
+        .select(&message.summary.folder)
+        .await
+        .map_err(|error| AppError::Mail(error.to_string()))?;
+    let uid = message.summary.uid.to_string();
+    let fetched = session
+        .uid_fetch(&uid, "UID FLAGS BODY.PEEK[]")
+        .await
+        .map_err(|error| AppError::Mail(error.to_string()))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|error| AppError::Mail(error.to_string()))?;
+    let fetch = fetched
+        .iter()
+        .find(|fetch| {
+            fetch
+                .uid
+                .is_some_and(|value| i64::from(value) == message.summary.uid)
+        })
+        .ok_or(AppError::NotFound)?;
+    let raw = fetch.body().ok_or(AppError::NotFound)?;
+    let parsed = parse_message(raw, OffsetDateTime::now_utc().unix_timestamp())
+        .ok_or_else(|| AppError::Mail("failed to parse refreshed message".into()))?;
+    validate_refresh_identity(
+        message.summary.uid_validity,
+        mailbox.uid_validity.map(i64::from),
+        message.message_id.as_deref(),
+        parsed.message_id.as_deref(),
+    )?;
+    let flags = fetch.flags().collect::<Vec<_>>();
+    repository
+        .insert_if_new(
+            user_id,
+            &account,
+            NewMessage {
+                folder: message.summary.folder,
+                uid: message.summary.uid,
+                uid_validity: mailbox.uid_validity.map(i64::from),
+                mail: parsed,
+                is_read: flags.contains(&Flag::Seen),
+                is_starred: flags.contains(&Flag::Flagged),
+            },
+        )
+        .await?;
+    let _ = session.logout().await;
+    Ok(Json(repository.get(user_id, id).await?))
 }
 
 #[derive(Deserialize)]
@@ -333,6 +412,25 @@ fn validate_uid_validity(cached: Option<i64>, selected: Option<i64>) -> Result<(
     match (cached, selected) {
         (Some(cached), Some(selected)) if cached == selected => Ok(()),
         _ => Err(AppError::Conflict),
+    }
+}
+
+fn validate_refresh_identity(
+    cached_uid_validity: Option<i64>,
+    selected_uid_validity: Option<i64>,
+    cached_message_id: Option<&str>,
+    fetched_message_id: Option<&str>,
+) -> Result<(), AppError> {
+    if cached_uid_validity.is_some() {
+        return validate_uid_validity(cached_uid_validity, selected_uid_validity);
+    }
+    if selected_uid_validity.is_some()
+        && cached_message_id.is_some()
+        && cached_message_id == fetched_message_id
+    {
+        Ok(())
+    } else {
+        Err(AppError::Conflict)
     }
 }
 
@@ -604,7 +702,9 @@ mod tests {
         users::UserRepository,
     };
 
-    use super::{delete_message_with, sync_sequence_start, validate_uid_validity};
+    use super::{
+        delete_message_with, sync_sequence_start, validate_refresh_identity, validate_uid_validity,
+    };
 
     #[tokio::test]
     async fn server_delete_failure_keeps_the_local_message() {
@@ -707,6 +807,32 @@ mod tests {
         ));
         assert!(matches!(
             validate_uid_validity(None, None),
+            Err(AppError::Conflict)
+        ));
+    }
+
+    #[test]
+    fn legacy_message_refresh_requires_the_same_message_id() {
+        assert!(
+            validate_refresh_identity(
+                None,
+                Some(1001),
+                Some("legacy@example.com"),
+                Some("legacy@example.com")
+            )
+            .is_ok()
+        );
+        assert!(matches!(
+            validate_refresh_identity(
+                None,
+                Some(1001),
+                Some("legacy@example.com"),
+                Some("different@example.com")
+            ),
+            Err(AppError::Conflict)
+        ));
+        assert!(matches!(
+            validate_refresh_identity(None, Some(1001), None, None),
             Err(AppError::Conflict)
         ));
     }

@@ -7,6 +7,7 @@ import { messages } from "../i18n/messages"
 const bootstrap = readFileSync("public/theme-bootstrap.js", "utf8")
 const mainSource = readFileSync("src/main.tsx", "utf8")
 const providersSource = readFileSync("src/app/Providers.tsx", "utf8")
+const tokenStyles = readFileSync("src/theme/tokens.css", "utf8")
 
 function runBootstrap({ language, storedLocale = null, storedTheme = null, storageDenied = false }) {
   const description = { content: "", setAttribute(_name, value) { this.content = value } }
@@ -63,4 +64,14 @@ test("application root mounts the Astryx theme and layer providers", () => {
 test("theme bootstrap restores a supported Astryx theme and rejects unknown values", () => {
   expect(runBootstrap({ language: "zh-CN", storedTheme: "gothic" }).documentStub.documentElement.dataset.astryxTheme).toBe("gothic")
   expect(runBootstrap({ language: "zh-CN", storedTheme: "unknown" }).documentStub.documentElement.dataset.astryxTheme).toBe("neutral")
+})
+
+test("email editor overlays follow the resolved application theme", () => {
+  for (const mode of ["light", "dark"]) {
+    const themeBlock = tokenStyles.match(new RegExp(`:root\\[data-theme="${mode}"\\] \\{([^}]+)\\}`))?.[1] || ""
+    expect(themeBlock).toContain("--re-bg:")
+    expect(themeBlock).toContain("--re-text:")
+    expect(themeBlock).toContain("--re-text-muted:")
+    expect(themeBlock).toContain("--re-border:")
+  }
 })

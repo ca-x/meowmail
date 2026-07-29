@@ -43,8 +43,37 @@
   font-synthesis: none;
 }
 
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] {
+  color-scheme: light;
+  --re-bg: var(--bg-surface);
+  --re-bg-active: var(--bg-pressed);
+  --re-border: var(--border);
+  --re-text: var(--text-primary);
+  --re-text-muted: var(--text-secondary);
+  --re-hover: var(--bg-hover);
+  --re-active: var(--bg-pressed);
+  --re-pressed: var(--bg-selected);
+  --re-separator: var(--border);
+  --re-shadow: var(--shadow-medium);
+  --re-danger: var(--danger);
+  --re-danger-hover: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --re-bg: var(--bg-elevated);
+  --re-bg-active: var(--bg-pressed);
+  --re-border: var(--border-strong);
+  --re-text: var(--text-primary);
+  --re-text-muted: var(--text-secondary);
+  --re-hover: var(--bg-hover);
+  --re-active: var(--bg-pressed);
+  --re-pressed: var(--bg-selected);
+  --re-separator: var(--border);
+  --re-shadow: var(--shadow-medium);
+  --re-danger: var(--danger);
+  --re-danger-hover: color-mix(in srgb, var(--danger) 18%, transparent);
+}
 
 :root[data-astryx-theme],
 [data-astryx-theme] {

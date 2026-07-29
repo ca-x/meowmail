@@ -169,6 +169,8 @@ export const api = {
   messages: (params: URLSearchParams) =>
     request<MessageSummary[]>(`/api/v1/messages?${params.toString()}`),
   message: (id: string) => request<MessageDetail>(`/api/v1/messages/${id}`),
+  refreshMessage: (id: string) =>
+    request<MessageDetail>(`/api/v1/messages/${id}/refresh`, { method: "POST" }),
   messageThread: (id: string) => request<MessageDetail[]>(`/api/v1/messages/${id}/thread`),
   attachmentUrl: (messageId: string, attachmentId: string, download = false) =>
     `/api/v1/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}${download ? "?download=true" : ""}`,

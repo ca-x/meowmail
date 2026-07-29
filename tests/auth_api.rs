@@ -82,7 +82,7 @@ async fn login_creates_a_protected_session_and_csrf_guards_mutations() {
         )
         .await
         .unwrap();
-    assert_eq!(logout.status(), StatusCode::OK);
+    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
 }
 
 #[tokio::test]
@@ -607,7 +607,7 @@ async fn locked_session_can_logout_and_auto_lock_is_pin_guarded() {
         )
         .await
         .unwrap();
-    assert_eq!(logout.status(), StatusCode::OK);
+    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
     assert!(
         logout
             .headers()

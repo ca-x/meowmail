@@ -175,6 +175,7 @@ function stubWorkspaceApi() {
   vi.spyOn(api, "mailPreferences").mockResolvedValue(defaultMailPreferences)
   vi.spyOn(api, "messages").mockResolvedValue([message])
   vi.spyOn(api, "message").mockResolvedValue(messageDetail)
+  vi.spyOn(api, "refreshMessage").mockResolvedValue(messageDetail)
   vi.spyOn(api, "messageThread").mockResolvedValue([messageDetail])
   vi.spyOn(api, "updateMessage").mockImplementation(async (_id, update) => ({ ...message, ...update }))
   vi.spyOn(api, "syncAccount").mockResolvedValue({ inserted: 0, syncedAt: 1_700_000_000 })
@@ -477,6 +478,59 @@ test("attachment information is localized and opens the preview dialog", async (
   expect(screen.getByText("附件预览")).toBeInTheDocument()
 })
 
+test("missing attachment metadata can be synchronized from the reading pane", async () => {
+  const user = userEvent.setup()
+  const onRefreshAttachments = vi.fn()
+  const detail: MessageDetailType = {
+    ...messageDetail,
+    attachmentCount: 1,
+    attachments: [],
+  }
+
+  render(
+    <Providers>
+      <MessageDetail
+        message={detail}
+        thread={[detail]}
+        loading={false}
+        preferences={defaultMailPreferences}
+        onBack={vi.fn()}
+        onToggleStar={vi.fn()}
+        onToggleRead={vi.fn()}
+        onReply={vi.fn()}
+        onForward={vi.fn()}
+        onDelete={vi.fn()}
+        onRefreshAttachments={onRefreshAttachments}
+      />
+    </Providers>,
+  )
+
+  await user.click(screen.getByRole("button", { name: /Sync attachment details|同步附件信息/ }))
+  expect(onRefreshAttachments).toHaveBeenCalledOnce()
+})
+
+test("the workspace refreshes attachment metadata for the selected message only", async () => {
+  stubWorkspaceApi()
+  const user = userEvent.setup()
+  const summary = { ...message, attachmentCount: 1 }
+  const detail = { ...messageDetail, attachmentCount: 1, attachments: [] }
+  vi.mocked(api.messages).mockResolvedValue([summary])
+  vi.mocked(api.message).mockResolvedValue(detail)
+  vi.mocked(api.messageThread).mockResolvedValue([detail])
+  vi.mocked(api.refreshMessage).mockResolvedValue({
+    ...detail,
+    attachments: [{ id: "attachment-1", filename: "report.pdf", contentType: "application/pdf", size: 42, available: true }],
+  })
+  renderWorkspace()
+
+  await user.click(await screen.findByText("Project update"))
+  await user.click(await screen.findByRole("button", { name: /Sync attachment details|同步附件信息/ }))
+
+  await waitFor(() => expect(api.refreshMessage).toHaveBeenCalledWith(message.id))
+  expect(api.syncAccount).not.toHaveBeenCalled()
+  expect(await screen.findByText("report.pdf")).toBeInTheDocument()
+})
+
 test("HTML mail follows the resolved dark application theme", () => {
   const previousMatchMedia = window.matchMedia
   Object.defineProperty(window, "matchMedia", {
@@ -549,13 +603,16 @@ test("calendar is a top-level workspace and the unused notification bell is abse
 test("local calendar event deletion uses the component confirmation dialog", async () => {
   stubWorkspaceApi()
   const user = userEvent.setup()
+  const startsAt = new Date()
+  startsAt.setHours(18, 30, 0, 0)
+  const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000)
   const localEvent = {
     id: "local-event-1",
     summary: "Calendar QA event",
     description: "",
     location: "",
-    startsAt: Math.floor(new Date("2026-07-28T18:30:00").getTime() / 1000),
-    endsAt: Math.floor(new Date("2026-07-28T19:30:00").getTime() / 1000),
+    startsAt: Math.floor(startsAt.getTime() / 1000),
+    endsAt: Math.floor(endsAt.getTime() / 1000),
     allDay: false,
     createdAt: 1_700_000_000,
     updatedAt: 1_700_000_000,

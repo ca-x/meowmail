@@ -314,6 +314,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
                   thread={workspace.thread}
                   loading={workspace.detailLoading}
                   isDeleting={workspace.deleting}
+                  isRefreshingAttachments={workspace.refreshingAttachments}
                   preferences={workspace.mailPreferences}
                   aiEnabled={session.user.aiEnabled}
                   onBack={() => workspace.setMobileView("list")}
@@ -328,6 +329,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
                     workspace.forwardMessage()
                   }}
                   onDelete={() => void workspace.deleteMessage()}
+                  onRefreshAttachments={() => void workspace.refreshAttachments()}
                 />
               </LayoutPanel>
             </>
