@@ -21,10 +21,10 @@ export function AboutSettingsPanel({ session }: { session: SessionResponse }) {
             <small>{t("metaDescription")}</small>
           </div>
         </div>
-        <MetadataList columns="single" label={{ position: "start", width: 112 }}>
-          <MetadataListItem label={t("applicationVersion")} icon={<Info aria-hidden="true" />}>{session.version}</MetadataListItem>
-          <MetadataListItem label={t("softwareLicense")} icon={<Scale aria-hidden="true" />}>MIT</MetadataListItem>
-          <MetadataListItem label={t("sourceRepository")} icon={<GitFork aria-hidden="true" />}>
+        <MetadataList className="settings-about-metadata" columns="single" label={{ position: "start", width: 128 }}>
+          <MetadataListItem label={t("applicationVersion")} icon={<Info size={15} strokeWidth={2} aria-hidden="true" />}>{session.version}</MetadataListItem>
+          <MetadataListItem label={t("softwareLicense")} icon={<Scale size={15} strokeWidth={2} aria-hidden="true" />}>MIT</MetadataListItem>
+          <MetadataListItem label={t("sourceRepository")} icon={<GitFork size={15} strokeWidth={2} aria-hidden="true" />}>
             <Link href={repositoryUrl} isExternalLink newTabLabel={t("opensInNewTab")} maxLines={1}>{repositoryUrl}</Link>
           </MetadataListItem>
         </MetadataList>

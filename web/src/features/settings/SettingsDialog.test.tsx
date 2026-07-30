@@ -103,6 +103,12 @@ test("about settings show the running application version", async () => {
 
   expect(screen.getByRole("region", { name: "About Meowmail" })).toBeInTheDocument()
   expect(screen.getByText(session.version)).toBeInTheDocument()
+  const metadataIcons = document.querySelectorAll(".settings-about-metadata dt svg")
+  expect(metadataIcons).toHaveLength(3)
+  for (const icon of metadataIcons) {
+    expect(icon).toHaveAttribute("width", "15")
+    expect(icon).toHaveAttribute("height", "15")
+  }
 })
 
 test("calendar settings expose every supported display option and persist the selection", async () => {
