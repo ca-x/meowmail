@@ -20,7 +20,7 @@
     "@astryxdesign/theme-neutral": "0.1.8",
     "@astryxdesign/theme-stone": "0.1.8",
     "@astryxdesign/theme-y2k": "0.1.8",
-    "@file-viewer/web-full": "^2.2.3",
+    "@file-viewer/web-full": "^2.2.4",
     "@fullcalendar/core": "^6.1.21",
     "@fullcalendar/daygrid": "^6.1.21",
     "@fullcalendar/interaction": "^6.1.21",
