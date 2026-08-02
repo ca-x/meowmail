@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:26.5.0-bookworm-slim AS web-builder
+FROM node:26.5.1-bookworm-slim AS web-builder
 
 WORKDIR /src/web
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
