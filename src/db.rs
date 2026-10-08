@@ -16,7 +16,13 @@ pub struct Database {
 
 impl Database {
     pub async fn connect(path: &Path) -> Result<Self> {
-        let database_url = format!("sqlite://{}?mode=rwc", path.display());
+        // Encode the filename before it reaches URL parsing. Native Windows
+        // separators and URL delimiters must remain literal filename bytes.
+        let filename = path.to_str().context("SQLite path must be valid UTF-8")?;
+        let encoded = url::form_urlencoded::byte_serialize(filename.as_bytes())
+            .collect::<String>()
+            .replace('+', "%20");
+        let database_url = format!("sqlite://{encoded}?mode=rwc");
         let mut options = ConnectOptions::new(database_url);
         options
             .max_connections(5)

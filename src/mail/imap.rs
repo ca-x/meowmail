@@ -108,3 +108,108 @@ async fn read_line(stream: &mut BoxStream, limit: usize) -> Result<Vec<u8>> {
     }
     bail!("IMAP response exceeded the size limit")
 }
+
+/// Write only the requested flags, preserving unrelated server flags.
+/// Missing UIDs are retained local copies and have no flags to update remotely.
+pub async fn update_flags(
+    session: &mut Session<BoxStream>,
+    uid: &str,
+    is_read: Option<bool>,
+    is_starred: Option<bool>,
+) -> Result<()> {
+    let exists = session
+        .uid_fetch(uid, "UID")
+        .await?
+        .try_collect::<Vec<_>>()
+        .await?
+        .iter()
+        .any(|fetch| fetch.uid.is_some_and(|value| value.to_string() == uid));
+    if !exists {
+        return Ok(());
+    }
+    for (value, flag) in [(is_read, "\\Seen"), (is_starred, "\\Flagged")] {
+        if let Some(value) = value {
+            let operation = if value { "+" } else { "-" };
+            session
+                .uid_store(uid, format!("{operation}FLAGS.SILENT ({flag})"))
+                .await
+                .context("IMAP flag update failed")?
+                .try_collect::<Vec<_>>()
+                .await
+                .context("IMAP flag update response failed")?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod flag_tests {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    #[tokio::test]
+    async fn writes_read_and_star_flags_without_replacing_other_flags() {
+        let (client, server) = tokio::io::duplex(4096);
+        let peer = tokio::spawn(async move {
+            let mut server = BufReader::new(server);
+            for expected in [
+                "LOGIN \"test\" \"password\"",
+                "UID FETCH 42 UID",
+                "UID STORE 42 +FLAGS.SILENT (\\Seen)",
+                "UID STORE 42 -FLAGS.SILENT (\\Flagged)",
+                "UID FETCH 42 UID",
+                "UID STORE 42 -FLAGS.SILENT (\\Seen)",
+                "UID STORE 42 +FLAGS.SILENT (\\Flagged)",
+            ] {
+                let mut command = String::new();
+                server.read_line(&mut command).await.unwrap();
+                let (tag, body) = command.trim_end().split_once(' ').unwrap();
+                assert_eq!(body, expected);
+                if expected.contains("FETCH") {
+                    server.write_all(b"* 1 FETCH (UID 42)\r\n").await.unwrap();
+                }
+                server
+                    .write_all(format!("{tag} OK done\r\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+        });
+        let mut session = async_imap::Client::new(Box::new(client) as BoxStream)
+            .login("test", "password")
+            .await
+            .unwrap();
+        update_flags(&mut session, "42", Some(true), Some(false))
+            .await
+            .unwrap();
+        update_flags(&mut session, "42", Some(false), Some(true))
+            .await
+            .unwrap();
+        peer.await.unwrap();
+    }
+    #[tokio::test]
+    async fn missing_uid_does_not_modify_another_message() {
+        let (client, server) = tokio::io::duplex(4096);
+        let peer = tokio::spawn(async move {
+            let mut server = BufReader::new(server);
+            for expected in ["LOGIN \"test\" \"password\"", "UID FETCH 42 UID", "NOOP"] {
+                let mut command = String::new();
+                server.read_line(&mut command).await.unwrap();
+                let (tag, body) = command.trim_end().split_once(' ').unwrap();
+                assert_eq!(body, expected);
+                server
+                    .write_all(format!("{tag} OK done\r\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+        });
+        let mut session = async_imap::Client::new(Box::new(client) as BoxStream)
+            .login("test", "password")
+            .await
+            .unwrap();
+        update_flags(&mut session, "42", Some(true), None)
+            .await
+            .unwrap();
+        session.noop().await.unwrap();
+        peer.await.unwrap();
+    }
+}

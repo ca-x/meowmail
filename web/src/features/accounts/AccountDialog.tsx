@@ -219,6 +219,12 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
                   </section>
 
                   <AccountIdentityFields input={input} isEditing={Boolean(account)} onChange={setInput} />
+                  {input.imap.host.trim().toLowerCase() === "imap.gmail.com" && (
+                    <section className="account-form-section">
+                      <p>{t("gmailAppPasswordHelp")}</p>
+                      <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">{t("gmailCreateAppPassword")}</a>
+                    </section>
+                  )}
                   <AccountServerSettings input={input} onChange={setInput} />
                   <AccountProxySettings input={input} onChange={setInput} />
 

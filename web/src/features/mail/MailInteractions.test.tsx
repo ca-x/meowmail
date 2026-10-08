@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, test, vi } from "vitest"
 
@@ -747,4 +747,31 @@ test("sync is unavailable while a delete request is pending", async () => {
 
   finishDelete()
   await waitFor(() => expect(api.deleteMessage).toHaveBeenCalledWith(message.id))
+})
+
+
+test("a delayed read update never marks the newly selected message as read", async () => {
+  const user = userEvent.setup()
+  stubWorkspaceApi()
+  const second = { ...message, id: "message-2", subject: "Second message" }
+  vi.mocked(api.messages).mockResolvedValue([message, second])
+  vi.mocked(api.messageThread).mockImplementation(async (id) => [{
+    ...messageDetail, ...(id === second.id ? second : message), isRead: false,
+  }])
+  vi.mocked(api.message).mockImplementation(async (id) => ({
+    ...messageDetail, ...(id === second.id ? second : message), isRead: false,
+  }))
+  let finishFirst!: (value: MessageSummary) => void
+  const firstPending = new Promise<MessageSummary>((resolve) => { finishFirst = resolve })
+  vi.mocked(api.updateMessage).mockImplementation(async (id) => {
+    if (id === message.id) return firstPending
+    throw new Error("mailbox busy")
+  })
+  renderWorkspace()
+  await user.click(await screen.findByText(message.subject))
+  await waitFor(() => expect(api.updateMessage).toHaveBeenCalledWith(message.id, { isRead: true }))
+  await user.click(screen.getByText(second.subject))
+  await waitFor(() => expect(api.updateMessage).toHaveBeenCalledWith(second.id, { isRead: true }))
+  await act(async () => { finishFirst({ ...message, isRead: true }) })
+  expect(screen.getByRole("button", { name: "Mark as read" })).toBeVisible()
 })

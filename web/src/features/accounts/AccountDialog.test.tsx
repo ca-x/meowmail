@@ -148,3 +148,14 @@ test("mail account management starts with a list and opens the selected editor",
 
   expect(await screen.findByRole("dialog", { name: "Edit mail account" })).toBeInTheDocument()
 })
+
+
+test("Gmail preset explains app passwords and the OAuth-only account boundary", async () => {
+  const user = userEvent.setup()
+  renderDialog()
+  await user.click(screen.getByRole("button", { name: "Gmail" }))
+  expect(screen.getByText(/Gmail requires an app password/)).toBeVisible()
+  expect(screen.getByRole("link", { name: "Create a Google app password" })).toHaveAttribute("href", "https://myaccount.google.com/apppasswords")
+  await user.click(screen.getByRole("button", { name: "Outlook" }))
+  expect(screen.queryByText(/Gmail requires an app password/)).not.toBeInTheDocument()
+})

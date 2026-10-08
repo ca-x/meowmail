@@ -124,18 +124,19 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
         : [await api.message(message.id)]
       const loaded = loadedThread.find((item) => item.id === message.id) || loadedThread.at(-1)
       if (!loaded) throw new Error("message is missing")
+      if (selectedIdRef.current !== message.id) return
       setThread(loadedThread)
       setDetail(loaded)
       if (!loaded.isRead) {
         const updated = await api.updateMessage(loaded.id, { isRead: true })
         setMessages((items) => items.map((item) => item.id === updated.id ? updated : item))
-        setDetail((value) => value ? { ...value, isRead: true } : value)
+        setDetail((value) => value?.id === updated.id ? { ...value, isRead: updated.isRead } : value)
         setThread((items) => items.map((item) => item.id === updated.id ? { ...item, isRead: true } : item))
       }
     } catch {
       notify("genericError", undefined, "error")
     } finally {
-      setDetailLoading(false)
+      if (selectedIdRef.current === message.id) setDetailLoading(false)
     }
   }, [mailPreferences.conversationMode, notify])
 
@@ -225,7 +226,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     if (!detail) return
     const updated = await api.updateMessage(detail.id, { isRead: !detail.isRead }).catch(() => null)
     if (!updated) return notify("genericError", undefined, "error")
-    setDetail({ ...detail, isRead: updated.isRead })
+    setDetail((value) => value?.id === updated.id ? { ...value, isRead: updated.isRead } : value)
     setThread((items) => items.map((item) => item.id === updated.id ? { ...item, isRead: updated.isRead } : item))
     setMessages((items) => items.map((item) => item.id === updated.id ? updated : item))
   }, [detail, notify])

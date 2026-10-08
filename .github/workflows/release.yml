@@ -114,6 +114,38 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target "${{ matrix.target }}"
 
+      - name: Smoke-test Windows database initialization
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runDir = Join-Path $env:RUNNER_TEMP ('妙邮 data %23 ' + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $runDir | Out-Null
+          $env:MEOWMAIL_DATA_DIR = Join-Path $runDir 'data'
+          $env:MEOWMAIL_BIND = '127.0.0.1:18080'
+          $env:MEOWMAIL_AUTH_MODE = 'local'
+          $env:MEOWMAIL_BOOTSTRAP_ADMIN_USERNAME = 'admin'
+          $env:MEOWMAIL_BOOTSTRAP_ADMIN_PASSWORD = 'release-smoke-password'
+          $binary = Join-Path $env:GITHUB_WORKSPACE 'target/${{ matrix.target }}/release/meowmail.exe'
+          $log = Join-Path $runDir 'stderr.log'
+          $server = Start-Process -FilePath $binary -WorkingDirectory $runDir -PassThru -RedirectStandardError $log
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              if ($server.HasExited) { throw "Server exited: $(Get-Content $log -Raw)" }
+              try {
+                $health = Invoke-RestMethod 'http://127.0.0.1:18080/api/v1/health'
+                if ($health.status -eq 'ok') { $healthy = $true; break }
+              } catch { Start-Sleep -Milliseconds 500 }
+            }
+            if (-not $healthy) { throw "Server did not become healthy: $(Get-Content $log -Raw)" }
+            if (-not (Test-Path (Join-Path $env:MEOWMAIL_DATA_DIR 'meowmail.sqlite3'))) {
+              throw 'Database was not created at the requested native Windows path'
+            }
+          } finally {
+            if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+          }
+
       - name: Package release archive
         env:
           TARGET: ${{ matrix.target }}

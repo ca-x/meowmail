@@ -289,7 +289,7 @@ fn ascii_attachment_filename(filename: &str) -> String {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FlagUpdate {
     is_read: Option<bool>,
@@ -308,10 +308,112 @@ async fn update_message(
         ));
     }
     Ok(Json(
-        MessageRepository::new(state.db)
-            .update_flags(mutation.0.user_id, id, update.is_read, update.is_starred)
-            .await?,
+        update_message_with(
+            state,
+            mutation.0.user_id,
+            id,
+            update,
+            update_message_on_server,
+        )
+        .await?,
     ))
+}
+
+async fn update_message_with<F, Fut>(
+    state: AppState,
+    user_id: Uuid,
+    id: Uuid,
+    update: FlagUpdate,
+    update_remote: F,
+) -> Result<MessageSummary, AppError>
+where
+    F: FnOnce(AppState, Uuid, MessageDetail, FlagUpdate) -> Fut,
+    Fut: std::future::Future<Output = Result<(), AppError>>,
+{
+    let repository = MessageRepository::new(state.db.clone());
+    let message = repository.get(user_id, id).await?.summary;
+    let _mailbox_guard = state
+        .mailbox_locks
+        .try_lock(user_id, message.account_id)
+        .ok_or(AppError::Conflict)?;
+    let message = repository.get(user_id, id).await?;
+    // Sent messages and retained copies no longer present on the server are local.
+    if !message.summary.folder.eq_ignore_ascii_case("Sent") {
+        tokio::time::timeout(
+            MAILBOX_MUTATION_TIMEOUT,
+            update_remote(state, user_id, message, update),
+        )
+        .await
+        .map_err(|_| AppError::Mail("IMAP flag update timed out".into()))??;
+    }
+    repository
+        .update_flags(user_id, id, update.is_read, update.is_starred)
+        .await
+}
+
+async fn update_message_on_server(
+    state: AppState,
+    user_id: Uuid,
+    message: MessageDetail,
+    update: FlagUpdate,
+) -> Result<(), AppError> {
+    let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
+    let (account, secrets, proxy) = accounts
+        .get_with_secrets(user_id, message.summary.account_id)
+        .await?;
+    let mut session = connect_imap_session(&account, &secrets, &proxy)
+        .await
+        .map_err(|error| AppError::Mail(error.to_string()))?;
+    let mailbox = session
+        .select(&message.summary.folder)
+        .await
+        .map_err(|error| AppError::Mail(error.to_string()))?;
+    let selected_validity = mailbox.uid_validity.map(i64::from);
+    // A known old mailbox epoch is a retained local copy. Never touch a UID
+    // that might have been reused for a different message in the new epoch.
+    if flag_update_is_local(message.summary.uid_validity, selected_validity) {
+        let _ = session.logout().await;
+        return Ok(());
+    }
+    if message.summary.uid_validity.is_none() {
+        let fetched = session
+            .uid_fetch(message.summary.uid.to_string(), "UID BODY.PEEK[]")
+            .await
+            .map_err(|error| AppError::Mail(error.to_string()))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|error| AppError::Mail(error.to_string()))?;
+        let fetch = fetched.iter().find(|fetch| {
+            fetch
+                .uid
+                .is_some_and(|uid| i64::from(uid) == message.summary.uid)
+        });
+        let Some(fetch) = fetch else {
+            let _ = session.logout().await;
+            return Ok(());
+        };
+        let parsed = fetch
+            .body()
+            .and_then(|raw| parse_message(raw, OffsetDateTime::now_utc().unix_timestamp()));
+        validate_refresh_identity(
+            None,
+            selected_validity,
+            message.message_id.as_deref(),
+            parsed.as_ref().and_then(|mail| mail.message_id.as_deref()),
+        )?;
+    } else {
+        validate_uid_validity(message.summary.uid_validity, selected_validity)?;
+    }
+    crate::mail::update_imap_flags(
+        &mut session,
+        &message.summary.uid.to_string(),
+        update.is_read,
+        update.is_starred,
+    )
+    .await
+    .map_err(|error| AppError::Mail(error.to_string()))?;
+    let _ = session.logout().await;
+    Ok(())
 }
 
 async fn delete_message(
@@ -406,6 +508,10 @@ where
     MessageRepository::new(state.db)
         .delete_local(user_id, id)
         .await
+}
+
+fn flag_update_is_local(cached: Option<i64>, selected: Option<i64>) -> bool {
+    matches!((cached, selected), (Some(cached), Some(selected)) if cached != selected)
 }
 
 fn validate_uid_validity(cached: Option<i64>, selected: Option<i64>) -> Result<(), AppError> {
@@ -731,8 +837,8 @@ mod tests {
                     username: "me@example.com".into(),
                     password: Some("app-password".into()),
                     imap: ServerConfig {
-                        host: "imap.example.com".into(),
-                        port: 993,
+                        host: "127.0.0.1".into(),
+                        port: 1,
                         security: ConnectionSecurity::Tls,
                     },
                     smtp: ServerConfig {
@@ -785,7 +891,7 @@ mod tests {
             .id;
 
         let result = delete_message_with(
-            state,
+            state.clone(),
             owner.id,
             message_id,
             |_state, _user_id, _message_id| async {
@@ -796,6 +902,89 @@ mod tests {
 
         assert!(matches!(result, Err(AppError::Mail(_))));
         assert!(repository.get(owner.id, message_id).await.is_ok());
+        // An unreachable IMAP server must prevent a local-only read update.
+        let result = super::update_message(
+            axum::extract::State(state.clone()),
+            axum::extract::Path(message_id),
+            crate::auth::MutationSession(crate::auth::AuthenticatedSession {
+                user_id: owner.id,
+                csrf_token: String::new(),
+            }),
+            axum::Json(super::FlagUpdate {
+                is_read: Some(true),
+                is_starred: None,
+            }),
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(
+            !repository
+                .get(owner.id, message_id)
+                .await
+                .unwrap()
+                .summary
+                .is_read
+        );
+        let verify_local = repository.clone();
+        let updated = super::update_message_with(
+            state.clone(),
+            owner.id,
+            message_id,
+            super::FlagUpdate {
+                is_read: Some(true),
+                is_starred: Some(true),
+            },
+            move |_state, user_id, message, update| async move {
+                assert_eq!(message.summary.uid, 42);
+                assert_eq!(message.summary.uid_validity, Some(1001));
+                assert_eq!(update.is_read, Some(true));
+                assert!(
+                    !verify_local
+                        .get(user_id, message.summary.id)
+                        .await?
+                        .summary
+                        .is_read
+                );
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert!(updated.is_read && updated.is_starred);
+        let guard = state.mailbox_locks.lock(owner.id, account.id).await;
+        let blocked = super::update_message_with(
+            state.clone(),
+            owner.id,
+            message_id,
+            super::FlagUpdate {
+                is_read: Some(false),
+                is_starred: None,
+            },
+            |_, _, _, _| async { panic!("locked mailbox must not contact the server") },
+        )
+        .await;
+        assert!(matches!(blocked, Err(AppError::Conflict)));
+        drop(guard);
+        let foreign = super::update_message_with(
+            state.clone(),
+            uuid::Uuid::new_v4(),
+            message_id,
+            super::FlagUpdate {
+                is_read: Some(false),
+                is_starred: None,
+            },
+            |_, _, _, _| async { panic!("another user's message must not contact the server") },
+        )
+        .await;
+        assert!(matches!(foreign, Err(AppError::NotFound)));
+    }
+
+    #[test]
+    fn old_mailbox_epochs_are_local_but_unknown_epochs_require_identity_checks() {
+        assert!(super::flag_update_is_local(Some(1001), Some(1002)));
+        assert!(!super::flag_update_is_local(Some(1001), Some(1001)));
+        assert!(!super::flag_update_is_local(None, Some(1001)));
+        assert!(!super::flag_update_is_local(Some(1001), None));
     }
 
     #[test]
