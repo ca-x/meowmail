@@ -62,7 +62,7 @@ export function LockScreen({ session, onUnlocked, onLoggedOut }: {
             <p>{t("unlockDescription")}</p>
           </div>
           <label className="auth-field-label" htmlFor="unlock-pin">{t("pin")}</label>
-          <div className={`auth-field-control ${error ? "is-invalid" : ""}`}>
+          <div className={`auth-field-control ${error === "invalid" ? "is-invalid" : ""}`}>
             <KeyRound size={17} aria-hidden="true" />
             <input
               id="unlock-pin"
@@ -71,14 +71,16 @@ export function LockScreen({ session, onUnlocked, onLoggedOut }: {
               type="password"
               inputMode="numeric"
               value={pin}
-              onChange={(event) => setPin(event.target.value)}
+              onChange={(event) => { setPin(event.target.value); setError(null) }}
               disabled={Boolean(busy)}
               placeholder={t("unlockPinPlaceholder")}
-              aria-invalid={Boolean(error)}
+              aria-invalid={error === "invalid"}
+              aria-describedby={error ? "unlock-feedback" : undefined}
             />
           </div>
           {error && (
             <Banner
+              id="unlock-feedback"
               status="error"
               title={error === "limited" ? t("rateLimited") : error === "logout" ? t("logoutError") : t("unlockError")}
             />

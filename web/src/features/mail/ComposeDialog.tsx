@@ -9,7 +9,7 @@ import { Token } from "@astryxdesign/core/Token"
 import { Tokenizer } from "@astryxdesign/core/Tokenizer"
 import { useToast } from "@astryxdesign/core/Toast"
 import { createStaticSource, type SearchableItem } from "@astryxdesign/core/Typeahead"
-import { ArrowLeft, Clock3, FilePenLine, FileText, MailPlus, Paperclip, Send, Trash2, UserRound, WandSparkles } from "lucide-react"
+import { ArrowLeft, ChevronRight, Clock3, FilePenLine, FileText, MailPlus, Paperclip, Send, Trash2, UserRound, WandSparkles } from "lucide-react"
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ChangeEvent, type FormEvent } from "react"
 
 import { api } from "../../app/api"
@@ -67,6 +67,7 @@ export const ComposeDialog = forwardRef<ComposeWorkspaceRef, {
   const [to, setTo] = useState<RecipientItem[]>(() => recipientItems(draft?.to || ""))
   const [cc, setCc] = useState<RecipientItem[]>(() => recipientItems(draft?.cc || ""))
   const [bcc, setBcc] = useState<RecipientItem[]>(() => recipientItems(draft?.bcc || ""))
+  const [copyFieldsOpen, setCopyFieldsOpen] = useState(Boolean(draft?.cc || draft?.bcc))
   const [subject, setSubject] = useState(draft?.subject || "")
   const [bodyRevision, setBodyRevision] = useState(0)
   const [bodyText, setBodyText] = useState(draft?.body || "")
@@ -132,6 +133,7 @@ export const ComposeDialog = forwardRef<ComposeWorkspaceRef, {
     setAccountId(defaultAccount?.id || "")
     setTo(recipientItems(draft?.to || ""))
     setCc(recipientItems(draft?.cc || ""))
+    setCopyFieldsOpen(Boolean(draft?.cc || draft?.bcc))
     setBcc(recipientItems(draft?.bcc || ""))
     setSubject(draft?.subject || "")
     setBodyText(draft?.body || "")
@@ -354,8 +356,11 @@ export const ComposeDialog = forwardRef<ComposeWorkspaceRef, {
                   />
 
                   <RecipientRow label={t("to")} value={to} onChange={setTo} source={recipientSource} placeholder={t("recipientPlaceholder")} required />
-                  <RecipientRow label={t("cc")} value={cc} onChange={setCc} source={recipientSource} placeholder={t("recipientPlaceholder")} />
-                  <RecipientRow label={t("bcc")} value={bcc} onChange={setBcc} source={recipientSource} placeholder={t("recipientPlaceholder")} />
+                  <details className="compose-copy-recipients" open={copyFieldsOpen} onToggle={(event) => setCopyFieldsOpen(event.currentTarget.open)}>
+                    <summary><ChevronRight aria-hidden="true" />{t("cc")} / {t("bcc")}{cc.length + bcc.length > 0 && <span>({cc.length + bcc.length})</span>}</summary>
+                    <RecipientRow label={t("cc")} value={cc} onChange={setCc} source={recipientSource} placeholder={t("recipientPlaceholder")} />
+                    <RecipientRow label={t("bcc")} value={bcc} onChange={setBcc} source={recipientSource} placeholder={t("recipientPlaceholder")} />
+                  </details>
 
                   <div className="compose-subject-grid">
                     <label htmlFor="compose-subject">{t("subject")}</label>

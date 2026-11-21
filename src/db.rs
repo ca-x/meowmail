@@ -1,10 +1,13 @@
 pub mod entities;
 mod migration;
 
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 use anyhow::{Context, Result};
-use sea_orm::{ConnectOptions, ConnectionTrait, Database as SeaDatabase, DatabaseConnection};
+use sea_orm::{
+    ConnectOptions, Database as SeaDatabase, DatabaseConnection,
+    sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous},
+};
 use sea_orm_migration::MigratorTrait;
 
 use self::migration::Migrator;
@@ -27,18 +30,19 @@ impl Database {
         options
             .max_connections(5)
             .min_connections(1)
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .acquire_timeout(std::time::Duration::from_secs(10))
-            .sqlx_logging(false);
+            .connect_timeout(Duration::from_secs(10))
+            .acquire_timeout(Duration::from_secs(10))
+            .sqlx_logging(false)
+            .map_sqlx_sqlite_opts(|options| {
+                options
+                    .foreign_keys(true)
+                    .journal_mode(SqliteJournalMode::Wal)
+                    .synchronous(SqliteSynchronous::Normal)
+                    .busy_timeout(Duration::from_secs(5))
+            });
         let connection = SeaDatabase::connect(options)
             .await
             .with_context(|| format!("failed to open SQLite database at {}", path.display()))?;
-        connection
-            .execute_unprepared(
-                "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
-            )
-            .await
-            .context("failed to configure SQLite")?;
         Migrator::up(&connection, None)
             .await
             .context("failed to migrate SQLite database")?;

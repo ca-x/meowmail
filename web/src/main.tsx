@@ -17,6 +17,10 @@ import { createRoot } from "react-dom/client"
 import { App } from "./app/App"
 import { Providers } from "./app/Providers"
 
+// Dialog entry and press feedback follow the input that triggered them.
+window.addEventListener("pointerdown", () => { document.documentElement.dataset.input = "pointer" }, true)
+window.addEventListener("keydown", () => { document.documentElement.dataset.input = "keyboard" }, true)
+
 const root = document.getElementById("root")
 if (!root) throw new Error("Meowmail root element is missing")
 

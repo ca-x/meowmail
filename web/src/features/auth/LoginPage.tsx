@@ -3,7 +3,7 @@ import { Button } from "@astryxdesign/core/Button"
 import { Card } from "@astryxdesign/core/Card"
 import { IconButton } from "@astryxdesign/core/IconButton"
 import { useState, type FormEvent } from "react"
-import { Check, Eye, EyeOff, Globe2, KeyRound, LogIn, Moon, ShieldCheck, Sparkles, Sun, UserRound } from "lucide-react"
+import { Check, Eye, EyeOff, Globe2, KeyRound, Moon, ShieldCheck, Sparkles, Sun, UserRound } from "lucide-react"
 
 import { ApiError, api } from "../../app/api"
 import type { AuthConfig, SessionResponse } from "../../app/types"
@@ -74,39 +74,42 @@ export function LoginPage({ config, onAuthenticated }: {
         <div className="login-card-wrap">
           <Card width="100%" maxWidth={430} padding={8} className="login-card">
             <form className="login-form" onSubmit={submit}>
-              <div className="login-card-icon" aria-hidden="true"><LogIn size={22} /></div>
+              <div className="login-card-brand"><img src="/meowmail-logo.png" alt="" />{t("brandName")}</div>
               <div className="login-card-heading">
-                <h2>{t("loginTitle")}</h2>
+                <h2>{t("signIn")}</h2>
                 <p>{t("loginDescription")}</p>
               </div>
               {config.localEnabled && (
                 <>
                   <label className="auth-field-label" htmlFor="username">{t("loginUsername")}</label>
-                  <div className={`auth-field-control ${error ? "is-invalid" : ""}`}>
+                  <div className={`auth-field-control ${error === "invalid" ? "is-invalid" : ""}`}>
                     <UserRound size={17} aria-hidden="true" />
                     <input
                       id="username"
                       autoFocus
                       autoComplete="username"
                       value={username}
-                      onChange={(event) => setUsername(event.target.value)}
+                      onChange={(event) => { setUsername(event.target.value); setError(null) } }
                       placeholder={t("loginUsernamePlaceholder")}
-                      aria-invalid={Boolean(error)}
+                      aria-invalid={error === "invalid"}
+                      aria-describedby={error ? "login-feedback" : undefined}
                     />
                   </div>
                   <label className="auth-field-label" htmlFor="password">{t("loginPassword")}</label>
-                  <div className={`auth-field-control ${error ? "is-invalid" : ""}`}>
+                  <div className={`auth-field-control ${error === "invalid" ? "is-invalid" : ""}`}>
                     <KeyRound size={17} aria-hidden="true" />
                     <input
                       id="password"
                       autoComplete="current-password"
                       type={visible ? "text" : "password"}
                       value={password}
-                      onChange={(event) => setPassword(event.target.value)}
+                      onChange={(event) => { setPassword(event.target.value); setError(null) } }
                       placeholder={t("loginPasswordPlaceholder")}
-                      aria-invalid={Boolean(error)}
+                      aria-invalid={error === "invalid"}
+                      aria-describedby={error ? "login-feedback" : undefined}
                     />
                     <IconButton
+                      aria-pressed={visible}
                       label={visible ? t("hidePassword") : t("showPassword")}
                       tooltip={visible ? t("hidePassword") : t("showPassword")}
                       size="md"
@@ -117,6 +120,7 @@ export function LoginPage({ config, onAuthenticated }: {
                   </div>
                   {error && (
                     <Banner
+                      id="login-feedback"
                       status="error"
                       title={error === "limited" ? t("rateLimited") : t("loginError")}
                     />

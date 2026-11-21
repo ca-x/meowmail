@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, DatabaseTransaction, EntityTrait, FromQueryResult,
-    IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, Condition, DatabaseTransaction, DerivePartialModel, EntityTrait,
+    FromQueryResult, IntoActiveModel, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationTrait, Select, Set, TransactionTrait, sea_query::Expr,
 };
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -75,8 +78,60 @@ pub struct AttachmentContent {
     pub content: Vec<u8>,
 }
 
+#[derive(DerivePartialModel)]
+#[sea_orm(entity = "message::Entity")]
+struct SummaryRow {
+    id: String,
+    account_id: String,
+    folder: String,
+    uid: i64,
+    uid_validity: Option<i64>,
+    sender_name: Option<String>,
+    sender_email: String,
+    subject: String,
+    thread_key: String,
+    preview: String,
+    received_at: i64,
+    is_read: bool,
+    is_starred: bool,
+    attachment_count: i32,
+    raw_size: i64,
+    is_promotional: bool,
+}
+
+#[derive(DerivePartialModel)]
+#[sea_orm(entity = "message::Entity")]
+struct DetailRow {
+    #[sea_orm(nested)]
+    summary: SummaryRow,
+    message_id: Option<String>,
+    reply_to_email: Option<String>,
+    references_header: String,
+    recipients_json: String,
+    cc_recipients_json: String,
+    body_text: String,
+    body_html: Option<String>,
+}
+
+#[derive(DerivePartialModel)]
+#[sea_orm(entity = "message::Entity")]
+pub(super) struct MailboxMessage {
+    account_id: String,
+    pub folder: String,
+    pub uid: i64,
+    pub uid_validity: Option<i64>,
+    pub message_id: Option<String>,
+}
+
+impl MailboxMessage {
+    pub fn account_id(&self) -> Result<Uuid, AppError> {
+        Uuid::parse_str(&self.account_id).map_err(AppError::internal)
+    }
+}
+
 #[derive(FromQueryResult)]
 struct AttachmentMetadataRow {
+    message_id: String,
     id: String,
     filename: String,
     content_type: String,
@@ -157,6 +212,7 @@ impl MessageRepository {
         query
             .order_by_desc(message::Column::ReceivedAt)
             .limit(filter.limit.min(200))
+            .into_partial_model::<SummaryRow>()
             .all(self.db.connection())
             .await?
             .into_iter()
@@ -164,77 +220,58 @@ impl MessageRepository {
             .collect()
     }
 
-    pub async fn get(&self, user_id: Uuid, id: Uuid) -> Result<MessageDetail, AppError> {
-        let model = message::Entity::find()
-            .filter(message::Column::Id.eq(id.to_string()))
+    fn owned_message(user_id: Uuid, id: Uuid) -> Select<message::Entity> {
+        message::Entity::find_by_id(id.to_string())
             .filter(message::Column::UserId.eq(user_id.to_string()))
+    }
+
+    pub(super) async fn mailbox_message(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> Result<MailboxMessage, AppError> {
+        Self::owned_message(user_id, id)
+            .into_partial_model::<MailboxMessage>()
             .one(self.db.connection())
             .await?
-            .ok_or(AppError::NotFound)?;
-        let recipients =
-            serde_json::from_str(&model.recipients_json).map_err(AppError::internal)?;
-        let cc_recipients =
-            serde_json::from_str(&model.cc_recipients_json).map_err(AppError::internal)?;
-        let references =
-            serde_json::from_str(&model.references_header).map_err(AppError::internal)?;
-        let attachments = message_attachment::Entity::find()
-            .select_only()
-            .columns([
-                message_attachment::Column::Id,
-                message_attachment::Column::Filename,
-                message_attachment::Column::ContentType,
-                message_attachment::Column::Size,
-            ])
-            .column_as(
-                sea_orm::ExprTrait::is_not_null(Expr::col(message_attachment::Column::Content)),
-                "available",
-            )
-            .filter(message_attachment::Column::MessageId.eq(&model.id))
-            .order_by_asc(message_attachment::Column::Position)
-            .into_model::<AttachmentMetadataRow>()
-            .all(self.db.connection())
-            .await?
-            .into_iter()
-            .map(MessageAttachment::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(MessageDetail {
-            summary: MessageSummary::try_from(model.clone())?,
-            message_id: model.message_id,
-            reply_to_email: model.reply_to_email,
-            references,
-            recipients,
-            cc_recipients,
-            body_text: model.body_text,
-            body_html: model.body_html,
-            attachments,
-        })
+            .ok_or(AppError::NotFound)
+    }
+
+    pub async fn get(&self, user_id: Uuid, id: Uuid) -> Result<MessageDetail, AppError> {
+        let transaction = self.db.connection().begin().await?;
+        let mut details = read_details(&transaction, Self::owned_message(user_id, id)).await?;
+        transaction.commit().await?;
+        details.pop().ok_or(AppError::NotFound)
     }
 
     pub async fn thread(&self, user_id: Uuid, id: Uuid) -> Result<Vec<MessageDetail>, AppError> {
-        let anchor = message::Entity::find()
-            .filter(message::Column::Id.eq(id.to_string()))
-            .filter(message::Column::UserId.eq(user_id.to_string()))
-            .one(self.db.connection())
-            .await?
-            .ok_or(AppError::NotFound)?;
-        if anchor.thread_key.is_empty() {
-            return Ok(vec![self.get(user_id, id).await?]);
-        }
-        let models = message::Entity::find()
-            .filter(message::Column::UserId.eq(user_id.to_string()))
-            .filter(message::Column::AccountId.eq(&anchor.account_id))
-            .filter(message::Column::Folder.eq(&anchor.folder))
-            .filter(message::Column::ThreadKey.eq(&anchor.thread_key))
-            .order_by_asc(message::Column::ReceivedAt)
-            .limit(100)
-            .all(self.db.connection())
-            .await?;
-        let mut messages = Vec::with_capacity(models.len());
-        for model in models {
-            let id = Uuid::parse_str(&model.id).map_err(AppError::internal)?;
-            messages.push(self.get(user_id, id).await?);
-        }
-        Ok(messages)
+        let transaction = self.db.connection().begin().await?;
+        let (account_id, folder, thread_key): (String, String, String) =
+            Self::owned_message(user_id, id)
+                .select_only()
+                .columns([
+                    message::Column::AccountId,
+                    message::Column::Folder,
+                    message::Column::ThreadKey,
+                ])
+                .into_tuple()
+                .one(&transaction)
+                .await?
+                .ok_or(AppError::NotFound)?;
+        let query = if thread_key.is_empty() {
+            Self::owned_message(user_id, id)
+        } else {
+            message::Entity::find()
+                .filter(message::Column::UserId.eq(user_id.to_string()))
+                .filter(message::Column::AccountId.eq(account_id))
+                .filter(message::Column::Folder.eq(folder))
+                .filter(message::Column::ThreadKey.eq(thread_key))
+                .order_by_asc(message::Column::ReceivedAt)
+                .limit(100)
+        };
+        let details = read_details(&transaction, query).await?;
+        transaction.commit().await?;
+        Ok(details)
     }
 
     pub async fn get_attachment(
@@ -243,16 +280,12 @@ impl MessageRepository {
         message_id: Uuid,
         attachment_id: Uuid,
     ) -> Result<AttachmentContent, AppError> {
-        let message_exists = message::Entity::find()
-            .filter(message::Column::Id.eq(message_id.to_string()))
-            .filter(message::Column::UserId.eq(user_id.to_string()))
-            .one(self.db.connection())
-            .await?
-            .is_some();
-        if !message_exists {
-            return Err(AppError::NotFound);
-        }
         let attachment = message_attachment::Entity::find()
+            .join(
+                JoinType::InnerJoin,
+                message_attachment::Relation::Message.def(),
+            )
+            .filter(message::Column::UserId.eq(user_id.to_string()))
             .filter(message_attachment::Column::Id.eq(attachment_id.to_string()))
             .filter(message_attachment::Column::MessageId.eq(message_id.to_string()))
             .one(self.db.connection())
@@ -272,20 +305,25 @@ impl MessageRepository {
         is_read: Option<bool>,
         is_starred: Option<bool>,
     ) -> Result<MessageSummary, AppError> {
-        let model = message::Entity::find()
+        let mut update = message::Entity::update_many()
             .filter(message::Column::Id.eq(id.to_string()))
-            .filter(message::Column::UserId.eq(user_id.to_string()))
-            .one(self.db.connection())
-            .await?
-            .ok_or(AppError::NotFound)?;
-        let mut active = model.into_active_model();
+            .filter(message::Column::UserId.eq(user_id.to_string()));
         if let Some(value) = is_read {
-            active.is_read = Set(value);
+            update = update.col_expr(message::Column::IsRead, Expr::value(value));
         }
         if let Some(value) = is_starred {
-            active.is_starred = Set(value);
+            update = update.col_expr(message::Column::IsStarred, Expr::value(value));
         }
-        MessageSummary::try_from(active.update(self.db.connection()).await?)
+        let transaction = self.db.connection().begin().await?;
+        update.exec(&transaction).await?;
+        let summary = Self::owned_message(user_id, id)
+            .into_partial_model::<SummaryRow>()
+            .one(&transaction)
+            .await?
+            .ok_or(AppError::NotFound)?
+            .try_into()?;
+        transaction.commit().await?;
+        Ok(summary)
     }
 
     pub async fn delete_local(&self, user_id: Uuid, id: Uuid) -> Result<(), AppError> {
@@ -481,6 +519,64 @@ impl MessageRepository {
     }
 }
 
+async fn read_details(
+    transaction: &DatabaseTransaction,
+    query: Select<message::Entity>,
+) -> Result<Vec<MessageDetail>, AppError> {
+    let rows = query
+        .into_partial_model::<DetailRow>()
+        .all(transaction)
+        .await?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let metadata = message_attachment::Entity::find()
+        .select_only()
+        .columns([
+            message_attachment::Column::MessageId,
+            message_attachment::Column::Id,
+            message_attachment::Column::Filename,
+            message_attachment::Column::ContentType,
+            message_attachment::Column::Size,
+        ])
+        .column_as(
+            sea_orm::ExprTrait::is_not_null(Expr::col(message_attachment::Column::Content)),
+            "available",
+        )
+        .filter(message_attachment::Column::MessageId.is_in(rows.iter().map(|row| &row.summary.id)))
+        .order_by_asc(message_attachment::Column::MessageId)
+        .order_by_asc(message_attachment::Column::Position)
+        .into_model::<AttachmentMetadataRow>()
+        .all(transaction)
+        .await?;
+    let mut by_message = HashMap::<String, Vec<MessageAttachment>>::new();
+    for attachment in metadata {
+        by_message
+            .entry(attachment.message_id.clone())
+            .or_default()
+            .push(attachment.try_into()?);
+    }
+    rows.into_iter()
+        .map(|row| {
+            let attachments = by_message.remove(&row.summary.id).unwrap_or_default();
+            Ok(MessageDetail {
+                summary: row.summary.try_into()?,
+                message_id: row.message_id,
+                reply_to_email: row.reply_to_email,
+                references: serde_json::from_str(&row.references_header)
+                    .map_err(AppError::internal)?,
+                recipients: serde_json::from_str(&row.recipients_json)
+                    .map_err(AppError::internal)?,
+                cc_recipients: serde_json::from_str(&row.cc_recipients_json)
+                    .map_err(AppError::internal)?,
+                body_text: row.body_text,
+                body_html: row.body_html,
+                attachments,
+            })
+        })
+        .collect()
+}
+
 fn synthetic_sent_uid(timestamp: i64) -> i64 {
     let mut bytes = [0_u8; 8];
     let uuid = Uuid::new_v4();
@@ -558,6 +654,32 @@ impl TryFrom<message::Model> for MessageSummary {
     type Error = AppError;
 
     fn try_from(model: message::Model) -> Result<Self, Self::Error> {
+        SummaryRow {
+            id: model.id,
+            account_id: model.account_id,
+            folder: model.folder,
+            uid: model.uid,
+            uid_validity: model.uid_validity,
+            sender_name: model.sender_name,
+            sender_email: model.sender_email,
+            subject: model.subject,
+            thread_key: model.thread_key,
+            preview: model.preview,
+            received_at: model.received_at,
+            is_read: model.is_read,
+            is_starred: model.is_starred,
+            attachment_count: model.attachment_count,
+            raw_size: model.raw_size,
+            is_promotional: model.is_promotional,
+        }
+        .try_into()
+    }
+}
+
+impl TryFrom<SummaryRow> for MessageSummary {
+    type Error = AppError;
+
+    fn try_from(model: SummaryRow) -> Result<Self, Self::Error> {
         Ok(Self {
             id: Uuid::parse_str(&model.id).map_err(AppError::internal)?,
             account_id: Uuid::parse_str(&model.account_id).map_err(AppError::internal)?,

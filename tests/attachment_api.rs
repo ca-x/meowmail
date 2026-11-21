@@ -135,6 +135,39 @@ JVBERi0xLjQK\r\n\
         .await
         .unwrap()
         .remove(0);
+    let mut reply = parse_message(
+        b"From: Bob <bob@example.com>\r\nSubject: Re: Handbook\r\n\r\nThanks!",
+        message.received_at + 1,
+    )
+    .unwrap();
+    reply.thread_key.clone_from(&message.thread_key);
+    for folder in ["INBOX", "Archive"] {
+        repository
+            .insert_if_new(
+                owner.id,
+                &account,
+                NewMessage {
+                    folder: folder.into(),
+                    uid: 2,
+                    uid_validity: Some(1001),
+                    mail: reply.clone(),
+                    is_read: true,
+                    is_starred: false,
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let thread = repository.thread(owner.id, message.id).await.unwrap();
+    assert_eq!(thread.len(), 2, "a thread stays in its folder");
+    assert_eq!(thread[0].summary.id, message.id);
+    assert_eq!(thread[0].attachments[0].filename, "handbook.pdf");
+    assert!(
+        thread[1].attachments.is_empty(),
+        "attachments stay with their own message"
+    );
+    assert_eq!(thread[1].summary.subject, "Re: Handbook");
+    assert!(repository.thread(Uuid::new_v4(), message.id).await.is_err());
     create_local_user(&state, "member", "member password").await;
     let app = build_router(state);
     let owner_cookie = login(&app, "admin", "correct horse battery staple").await;

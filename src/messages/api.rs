@@ -28,7 +28,7 @@ use crate::{
 };
 
 use super::repository::{
-    MessageDetail, MessageFilter, MessageRepository, MessageSummary, NewMessage,
+    MailboxMessage, MessageDetail, MessageFilter, MessageRepository, MessageSummary, NewMessage,
 };
 use super::{AutomaticMessageKind, ComposeInput, ThreadingHeaders, send_outgoing};
 
@@ -149,8 +149,8 @@ async fn refresh_message_inner(
     id: Uuid,
 ) -> Result<Json<MessageDetail>, AppError> {
     let repository = MessageRepository::new(state.db.clone());
-    let message = repository.get(user_id, id).await?;
-    let account_id = message.summary.account_id;
+    let message = repository.mailbox_message(user_id, id).await?;
+    let account_id = message.account_id()?;
     let _mailbox_guard = state
         .mailbox_locks
         .try_lock(user_id, account_id)
@@ -161,10 +161,10 @@ async fn refresh_message_inner(
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
     let mailbox = session
-        .select(&message.summary.folder)
+        .select(&message.folder)
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
-    let uid = message.summary.uid.to_string();
+    let uid = message.uid.to_string();
     let fetched = session
         .uid_fetch(&uid, "UID FLAGS BODY.PEEK[]")
         .await
@@ -177,14 +177,14 @@ async fn refresh_message_inner(
         .find(|fetch| {
             fetch
                 .uid
-                .is_some_and(|value| i64::from(value) == message.summary.uid)
+                .is_some_and(|value| i64::from(value) == message.uid)
         })
         .ok_or(AppError::NotFound)?;
     let raw = fetch.body().ok_or(AppError::NotFound)?;
     let parsed = parse_message(raw, OffsetDateTime::now_utc().unix_timestamp())
         .ok_or_else(|| AppError::Mail("failed to parse refreshed message".into()))?;
     validate_refresh_identity(
-        message.summary.uid_validity,
+        message.uid_validity,
         mailbox.uid_validity.map(i64::from),
         message.message_id.as_deref(),
         parsed.message_id.as_deref(),
@@ -195,8 +195,8 @@ async fn refresh_message_inner(
             user_id,
             &account,
             NewMessage {
-                folder: message.summary.folder,
-                uid: message.summary.uid,
+                folder: message.folder,
+                uid: message.uid,
                 uid_validity: mailbox.uid_validity.map(i64::from),
                 mail: parsed,
                 is_read: flags.contains(&Flag::Seen),
@@ -327,18 +327,18 @@ async fn update_message_with<F, Fut>(
     update_remote: F,
 ) -> Result<MessageSummary, AppError>
 where
-    F: FnOnce(AppState, Uuid, MessageDetail, FlagUpdate) -> Fut,
+    F: FnOnce(AppState, Uuid, MailboxMessage, FlagUpdate) -> Fut,
     Fut: std::future::Future<Output = Result<(), AppError>>,
 {
     let repository = MessageRepository::new(state.db.clone());
-    let message = repository.get(user_id, id).await?.summary;
+    let message = repository.mailbox_message(user_id, id).await?;
     let _mailbox_guard = state
         .mailbox_locks
-        .try_lock(user_id, message.account_id)
+        .try_lock(user_id, message.account_id()?)
         .ok_or(AppError::Conflict)?;
-    let message = repository.get(user_id, id).await?;
+    let message = repository.mailbox_message(user_id, id).await?;
     // Sent messages and retained copies no longer present on the server are local.
-    if !message.summary.folder.eq_ignore_ascii_case("Sent") {
+    if !message.folder.eq_ignore_ascii_case("Sent") {
         tokio::time::timeout(
             MAILBOX_MUTATION_TIMEOUT,
             update_remote(state, user_id, message, update),
@@ -354,40 +354,38 @@ where
 async fn update_message_on_server(
     state: AppState,
     user_id: Uuid,
-    message: MessageDetail,
+    message: MailboxMessage,
     update: FlagUpdate,
 ) -> Result<(), AppError> {
     let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
     let (account, secrets, proxy) = accounts
-        .get_with_secrets(user_id, message.summary.account_id)
+        .get_with_secrets(user_id, message.account_id()?)
         .await?;
     let mut session = connect_imap_session(&account, &secrets, &proxy)
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
     let mailbox = session
-        .select(&message.summary.folder)
+        .select(&message.folder)
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
     let selected_validity = mailbox.uid_validity.map(i64::from);
     // A known old mailbox epoch is a retained local copy. Never touch a UID
     // that might have been reused for a different message in the new epoch.
-    if flag_update_is_local(message.summary.uid_validity, selected_validity) {
+    if flag_update_is_local(message.uid_validity, selected_validity) {
         let _ = session.logout().await;
         return Ok(());
     }
-    if message.summary.uid_validity.is_none() {
+    if message.uid_validity.is_none() {
         let fetched = session
-            .uid_fetch(message.summary.uid.to_string(), "UID BODY.PEEK[]")
+            .uid_fetch(message.uid.to_string(), "UID BODY.PEEK[]")
             .await
             .map_err(|error| AppError::Mail(error.to_string()))?
             .try_collect::<Vec<_>>()
             .await
             .map_err(|error| AppError::Mail(error.to_string()))?;
-        let fetch = fetched.iter().find(|fetch| {
-            fetch
-                .uid
-                .is_some_and(|uid| i64::from(uid) == message.summary.uid)
-        });
+        let fetch = fetched
+            .iter()
+            .find(|fetch| fetch.uid.is_some_and(|uid| i64::from(uid) == message.uid));
         let Some(fetch) = fetch else {
             let _ = session.logout().await;
             return Ok(());
@@ -402,11 +400,11 @@ async fn update_message_on_server(
             parsed.as_ref().and_then(|mail| mail.message_id.as_deref()),
         )?;
     } else {
-        validate_uid_validity(message.summary.uid_validity, selected_validity)?;
+        validate_uid_validity(message.uid_validity, selected_validity)?;
     }
     crate::mail::update_imap_flags(
         &mut session,
-        &message.summary.uid.to_string(),
+        &message.uid.to_string(),
         update.is_read,
         update.is_starred,
     )
@@ -422,9 +420,9 @@ async fn delete_message(
     mutation: MutationSession,
 ) -> Result<axum::http::StatusCode, AppError> {
     let message = MessageRepository::new(state.db.clone())
-        .get(mutation.0.user_id, id)
+        .mailbox_message(mutation.0.user_id, id)
         .await?;
-    if message.summary.folder.eq_ignore_ascii_case("Sent") {
+    if message.folder.eq_ignore_ascii_case("Sent") {
         MessageRepository::new(state.db)
             .delete_local(mutation.0.user_id, id)
             .await?;
@@ -440,25 +438,22 @@ async fn delete_message_from_server(
     id: Uuid,
 ) -> Result<(), AppError> {
     let message = MessageRepository::new(state.db.clone())
-        .get(user_id, id)
+        .mailbox_message(user_id, id)
         .await?;
     let accounts = AccountRepository::new(state.db.clone(), state.vault.clone());
     let (account, secrets, proxy) = accounts
-        .get_with_secrets(user_id, message.summary.account_id)
+        .get_with_secrets(user_id, message.account_id()?)
         .await?;
     let mut session = connect_imap_session(&account, &secrets, &proxy)
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
     let mailbox = session
-        .select(&message.summary.folder)
+        .select(&message.folder)
         .await
         .map_err(|error| AppError::Mail(error.to_string()))?;
-    validate_uid_validity(
-        message.summary.uid_validity,
-        mailbox.uid_validity.map(i64::from),
-    )?;
+    validate_uid_validity(message.uid_validity, mailbox.uid_validity.map(i64::from))?;
 
-    let uid = message.summary.uid.to_string();
+    let uid = message.uid.to_string();
     let fetched = session
         .uid_fetch(&uid, "UID")
         .await
@@ -469,7 +464,7 @@ async fn delete_message_from_server(
     let exists = fetched.iter().any(|fetch| {
         fetch
             .uid
-            .is_some_and(|value| i64::from(value) == message.summary.uid)
+            .is_some_and(|value| i64::from(value) == message.uid)
     });
     if exists {
         delete_imap_uid_set(&mut session, &uid)
@@ -491,10 +486,9 @@ where
     Fut: std::future::Future<Output = Result<(), AppError>>,
 {
     let account_id = MessageRepository::new(state.db.clone())
-        .get(user_id, id)
+        .mailbox_message(user_id, id)
         .await?
-        .summary
-        .account_id;
+        .account_id()?;
     let _mailbox_guard = state
         .mailbox_locks
         .try_lock(user_id, account_id)
@@ -935,16 +929,10 @@ mod tests {
                 is_starred: Some(true),
             },
             move |_state, user_id, message, update| async move {
-                assert_eq!(message.summary.uid, 42);
-                assert_eq!(message.summary.uid_validity, Some(1001));
+                assert_eq!(message.uid, 42);
+                assert_eq!(message.uid_validity, Some(1001));
                 assert_eq!(update.is_read, Some(true));
-                assert!(
-                    !verify_local
-                        .get(user_id, message.summary.id)
-                        .await?
-                        .summary
-                        .is_read
-                );
+                assert!(!verify_local.get(user_id, message_id).await?.summary.is_read);
                 Ok(())
             },
         )

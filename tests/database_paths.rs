@@ -27,3 +27,28 @@ async fn database_initializes_in_a_native_nested_path() {
     assert!(path.is_file());
     Database::connect(&path).await.unwrap();
 }
+
+#[tokio::test]
+async fn every_pool_connection_uses_the_same_sqlite_settings() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = Database::connect(&directory.path().join("mail.sqlite"))
+        .await
+        .unwrap();
+    let pool = db.connection().get_sqlite_connection_pool();
+    let mut held = Vec::new();
+    for _ in 0..pool.options().get_max_connections() {
+        let mut connection = pool.acquire().await.unwrap();
+        for (pragma, expected) in [
+            ("PRAGMA synchronous", 1),
+            ("PRAGMA foreign_keys", 1),
+            ("PRAGMA busy_timeout", 5000),
+        ] {
+            let actual: i64 = sea_orm::sqlx::query_scalar(pragma)
+                .fetch_one(&mut *connection)
+                .await
+                .unwrap();
+            assert_eq!(actual, expected, "{pragma} on connection {}", held.len());
+        }
+        held.push(connection);
+    }
+}

@@ -5,18 +5,40 @@ import { Kbd } from "@astryxdesign/core/Kbd"
 import { TextInput } from "@astryxdesign/core/TextInput"
 import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav"
 import { CalendarDays, Languages, LockKeyhole, LogOut, Moon, Search, Settings, Sun } from "lucide-react"
-import type { RefObject } from "react"
+import type { ReactNode, RefObject } from "react"
 
 import type { SessionResponse } from "../../../app/types"
 import { useI18n } from "../../../i18n/I18nProvider"
 import { useTheme } from "../../../theme/ThemeProvider"
 
-export function MailTopBar({ session, activeView, search, searchRef, onSearchChange, onOpenSettings, onLock, onLogout }: {
+export function MailSearchField({ value, inputRef, onChange }: {
+  value: string
+  inputRef: RefObject<HTMLInputElement | null>
+  onChange: (value: string) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="mail-search-field">
+      <TextInput
+        ref={inputRef}
+        label={t("search")}
+        isLabelHidden
+        startIcon={<Search aria-hidden="true" />}
+        value={value}
+        onChange={onChange}
+        placeholder={t("search")}
+        hasClear
+        width="100%"
+      />
+      {!value && <Kbd keys="mod+k" />}
+    </div>
+  )
+}
+
+export function MailTopBar({ session, activeView, searchField, onOpenSettings, onLock, onLogout }: {
   session: SessionResponse
   activeView: "mail" | "calendar"
-  search: string
-  searchRef: RefObject<HTMLInputElement | null>
-  onSearchChange: (value: string) => void
+  searchField: ReactNode
   onOpenSettings: () => void
   onLock: () => void
   onLogout: () => void
@@ -41,22 +63,7 @@ export function MailTopBar({ session, activeView, search, searchRef, onSearchCha
           heading={t("brandName")}
         />
       }
-      centerContent={activeView === "mail" ? (
-        <div className="mail-search-field">
-          <TextInput
-            ref={searchRef}
-            label={t("search")}
-            isLabelHidden
-            startIcon={<Search aria-hidden="true" />}
-            value={search}
-            onChange={onSearchChange}
-            placeholder={t("search")}
-            hasClear
-            width="100%"
-          />
-          <Kbd keys="mod+k" />
-        </div>
-      ) : <div className="mail-topbar-current-view"><CalendarDays aria-hidden="true" /><span>{t("calendarView")}</span></div>}
+      centerContent={activeView === "mail" ? searchField : <div className="mail-topbar-current-view"><CalendarDays aria-hidden="true" /><span>{t("calendarView")}</span></div>}
       endContent={
         <div className="mail-topbar-actions">
           <IconButton

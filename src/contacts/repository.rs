@@ -1,3 +1,4 @@
+use futures_util::TryStreamExt;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder,
     QuerySelect, Set,
@@ -39,15 +40,19 @@ impl ContactRepository {
         if query.is_none() {
             select = select.limit(limit as u64);
         }
-        let mut contacts = select
-            .all(self.db.connection())
-            .await?
-            .into_iter()
-            .map(Contact::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-        if let Some(query) = query {
-            contacts.retain(|contact| contact_matches_query(contact, &query));
-            contacts.truncate(limit);
+        let mut rows = select.stream(self.db.connection()).await?;
+        let mut contacts = Vec::new();
+        while let Some(row) = rows.try_next().await? {
+            let contact = Contact::try_from(row)?;
+            if query
+                .as_ref()
+                .is_none_or(|query| contact_matches_query(&contact, query))
+            {
+                contacts.push(contact);
+                if contacts.len() == limit {
+                    break;
+                }
+            }
         }
         Ok(contacts)
     }

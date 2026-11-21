@@ -4,7 +4,7 @@ import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout"
 import { Tab, TabList } from "@astryxdesign/core/TabList"
 import { useToast } from "@astryxdesign/core/Toast"
 import { Bot, CalendarDays, Database, Info, MailOpen, Settings2, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { MailAccount, MailPreferences, SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
@@ -46,7 +46,8 @@ export function SettingsDialog({ isOpen = true, initialTab = "general", session,
   const { t } = useI18n()
   const showToast = useToast()
   const [activeTab, setActiveTab] = useState<SettingsTab>("general")
-  const [visitedTabs, setVisitedTabs] = useState<Set<SettingsTab>>(() => new Set(["general"]))
+  const [visitedTabs, setVisitedTabs] = useState<Set<SettingsTab>>(() => new Set())
+  const contentRef = useRef<HTMLDivElement>(null)
   const visibleTabs = tabs.filter(({ value }) => value !== "ai" || session.user.aiEnabled)
 
   useEffect(() => {
@@ -61,6 +62,12 @@ export function SettingsDialog({ isOpen = true, initialTab = "general", session,
     setActiveTab("security")
     setVisitedTabs((current) => current.has("security") ? current : new Set([...current, "security"]))
   }, [activeTab, session.user.aiEnabled])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (contentRef.current) contentRef.current.scrollTop = 0
+    document.getElementById(`settings-tab-${activeTab}`)?.scrollIntoView?.({ block: "nearest", inline: "nearest" })
+  }, [activeTab, isOpen])
 
   const showNotice = useCallback((notice: SettingsNotice) => {
     showToast({
@@ -89,7 +96,7 @@ export function SettingsDialog({ isOpen = true, initialTab = "general", session,
       padding={0}
       aria-label={t("settings")}
     >
-      <Layout
+      {(isOpen || visitedTabs.size > 0) && <Layout
         className="settings-dialog-layout"
         height="fill"
         padding={4}
@@ -127,7 +134,7 @@ export function SettingsDialog({ isOpen = true, initialTab = "general", session,
           </div>
         }
         content={
-          <LayoutContent className="settings-dialog-content" padding={0} isScrollable>
+          <LayoutContent ref={contentRef} className="settings-dialog-content" padding={0} isScrollable>
             {visitedTabs.has("general") && <SettingsPanel tab="general" activeTab={activeTab}><GeneralSettingsPanel session={session} accounts={accounts} onSessionChanged={onSessionChanged} onOpenAccounts={onOpenAccounts} onNotice={showNotice} /></SettingsPanel>}
             {visitedTabs.has("mail") && <SettingsPanel tab="mail" activeTab={activeTab}><MailSettingsPanel accounts={accounts} mailPreferences={mailPreferences} onMailPreferencesChanged={onMailPreferencesChanged} onAccountsChanged={onAccountsChanged} onNotice={showNotice} /></SettingsPanel>}
             {session.user.aiEnabled && visitedTabs.has("ai") && <SettingsPanel tab="ai" activeTab={activeTab}><AiSettingsPanel accounts={accounts} onNotice={showNotice} /></SettingsPanel>}
@@ -144,7 +151,7 @@ export function SettingsDialog({ isOpen = true, initialTab = "general", session,
             <Button label={t("done")} variant="primary" size="lg" onClick={onClose} />
           </LayoutFooter>
         }
-      />
+      />}
     </Dialog>
   )
 }

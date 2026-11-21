@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react"
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, test, vi } from "vitest"
 
@@ -10,6 +10,7 @@ import { ComposeDialog } from "./ComposeDialog"
 import { MessageDetail } from "./MessageDetail"
 import { MessageList } from "./MessageList"
 import { MailWorkspace } from "./MailWorkspace"
+import { useMailWorkspace } from "./workspace/useMailWorkspace"
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -17,7 +18,7 @@ afterEach(() => {
   window.history.replaceState(null, "", "/mail/inbox")
 })
 
-vi.mock("@file-viewer/web-full", () => ({
+vi.mock("./attachmentViewer", () => ({
   mountViewer: vi.fn(() => ({ destroy: vi.fn() })),
 }))
 
@@ -172,6 +173,7 @@ const messageDetail: MessageDetailType = {
 
 function stubWorkspaceApi() {
   vi.spyOn(api, "accounts").mockResolvedValue([account])
+  vi.spyOn(api, "drafts").mockResolvedValue([])
   vi.spyOn(api, "mailPreferences").mockResolvedValue(defaultMailPreferences)
   vi.spyOn(api, "messages").mockResolvedValue([message])
   vi.spyOn(api, "message").mockResolvedValue(messageDetail)
@@ -622,9 +624,10 @@ test("local calendar event deletion uses the component confirmation dialog", asy
   renderWorkspace()
 
   await user.click(await screen.findByRole("radio", { name: /Calendar|日历/ }))
-  await screen.findAllByText(localEvent.summary)
-  await user.click(screen.getByRole("button", { name: /Edit local event|编辑本地事件/ }))
-  await user.click(screen.getByRole("button", { name: /^Delete$|^删除$/ }))
+  const dayPanel = within(await screen.findByRole("complementary", { name: /Date details|日期详情/ }))
+  await dayPanel.findByText(localEvent.summary)
+  await user.click(dayPanel.getByRole("button", { name: /Edit local event|编辑本地事件/ }))
+  await user.click(dayPanel.getByRole("button", { name: /^Delete$|^删除$/ }))
 
   const dialog = await screen.findByRole("alertdialog", { name: /Delete local event|删除本地事件/ })
   await user.click(within(dialog).getByRole("button", { name: /^Delete$|^删除$/ }))
@@ -701,6 +704,37 @@ test("folder filtering reaches the existing messages API contract", async () => 
   await waitFor(() => expect(api.messages).toHaveBeenCalled())
   const params = vi.mocked(api.messages).mock.calls.at(-1)?.[0]
   expect(params?.get("unread")).toBe("true")
+})
+
+test("a late search response cannot replace the current results", async () => {
+  stubWorkspaceApi()
+  let finishOldSearch!: (items: MessageSummary[]) => void
+  vi.mocked(api.messages).mockImplementation(async (params) => {
+    if (params.get("q") === "old") return new Promise((resolve) => { finishOldSearch = resolve })
+    return params.has("q") ? [] : [message]
+  })
+  const { result } = renderHook(() => useMailWorkspace({ activeView: "mail", onLoggedOut: vi.fn() }), { wrapper: Providers })
+  await waitFor(() => expect(result.current.messages).toEqual([message]))
+  act(() => result.current.setSearch("old"))
+  await waitFor(() => expect(finishOldSearch).toBeDefined())
+  act(() => result.current.setSearch("new"))
+  await waitFor(() => expect(result.current.messages).toEqual([]))
+  await act(async () => { finishOldSearch([message]) })
+  expect(result.current.messages).toEqual([])
+})
+
+test("opening a message beyond the thread limit marks the selected message as read", async () => {
+  stubWorkspaceApi()
+  vi.mocked(api.mailPreferences).mockResolvedValue({ ...defaultMailPreferences, conversationMode: true })
+  const sibling = { ...messageDetail, id: "older-message", isRead: false }
+  vi.mocked(api.messageThread).mockResolvedValue([sibling])
+  vi.mocked(api.message).mockResolvedValue({ ...messageDetail, isRead: false })
+  const { result } = renderHook(() => useMailWorkspace({ activeView: "mail", onLoggedOut: vi.fn() }), { wrapper: Providers })
+  await waitFor(() => expect(result.current.mailPreferences.conversationMode).toBe(true))
+  await act(() => result.current.selectMessage(message))
+  expect(result.current.detail?.id).toBe(message.id)
+  expect(result.current.thread.map((item) => item.id)).toEqual([sibling.id, message.id])
+  expect(api.updateMessage).toHaveBeenCalledExactlyOnceWith(message.id, { isRead: true })
 })
 
 test("sync exposes a loading state and refreshes the mailbox", async () => {

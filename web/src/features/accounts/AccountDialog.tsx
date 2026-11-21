@@ -185,7 +185,7 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
         padding={0}
         aria-label={account ? t("editAccount") : t("addAccount")}
       >
-        <form className="account-dialog-form" onSubmit={submit}>
+        {isOpen && <form className="account-dialog-form" onSubmit={submit}>
           <Layout
             className="account-dialog-layout"
             height="fill"
@@ -255,7 +255,7 @@ export function AccountDialog({ isOpen = true, account, onClose, onSaved, onDele
               </LayoutFooter>
             }
           />
-        </form>
+        </form>}
       </Dialog>
       {deleteDialog.element}
     </>

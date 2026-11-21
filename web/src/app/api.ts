@@ -166,8 +166,8 @@ export const api = {
     request<{ inserted: number; syncedAt: number }>(`/api/v1/accounts/${id}/sync`, {
       method: "POST",
     }),
-  messages: (params: URLSearchParams) =>
-    request<MessageSummary[]>(`/api/v1/messages?${params.toString()}`),
+  messages: (params: URLSearchParams, signal?: AbortSignal) =>
+    request<MessageSummary[]>(`/api/v1/messages?${params.toString()}`, { signal }),
   message: (id: string) => request<MessageDetail>(`/api/v1/messages/${id}`),
   refreshMessage: (id: string) =>
     request<MessageDetail>(`/api/v1/messages/${id}/refresh`, { method: "POST" }),
@@ -182,8 +182,8 @@ export const api = {
   deleteMessage: (id: string) => request<void>(`/api/v1/messages/${id}`, { method: "DELETE" }),
   sendMessage: (input: ComposeMessageInput) =>
     request<void>("/api/v1/messages/send", { method: "POST", body: JSON.stringify(input) }),
-  contacts: (params = new URLSearchParams({ limit: "100" })) =>
-    request<Contact[]>(`/api/v1/contacts?${params.toString()}`),
+  contacts: (params = new URLSearchParams({ limit: "100" }), signal?: AbortSignal) =>
+    request<Contact[]>(`/api/v1/contacts?${params.toString()}`, { signal }),
   createContact: (input: ContactInput) =>
     request<Contact>("/api/v1/contacts", { method: "POST", body: JSON.stringify(input) }),
   updateContact: (id: string, input: ContactInput) =>

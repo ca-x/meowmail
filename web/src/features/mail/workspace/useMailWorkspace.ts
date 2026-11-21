@@ -3,18 +3,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { ApiError, api } from "../../../app/api"
 import { defaultMailPreferences } from "../../../app/mailPreferences"
-import { readStoredValue, removeStoredValue, writeStoredValue } from "../../../app/storage"
+import { readStoredValue, writeStoredValue } from "../../../app/storage"
 import type { EmailDraft, MailAccount, MailPreferences, MessageDetail, MessageSummary } from "../../../app/types"
 import { useI18n } from "../../../i18n/I18nProvider"
 import type { MessageKey } from "../../../i18n/messages"
 import type { ComposeDraft } from "../ComposeDialog"
 import type { MailFilter, MailMobileView } from "./types"
 
-export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
+export function useMailWorkspace({ activeView, onLoggedOut }: { activeView: "mail" | "calendar"; onLoggedOut: () => void }) {
   const { t } = useI18n()
   const showAstryxToast = useToast()
   const [accounts, setAccounts] = useState<MailAccount[]>([])
-  const [activeAccountId, setActiveAccountId] = useState<string | null>(() => readStoredValue("meowmail-account"))
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(() => {
+    const saved = readStoredValue("meowmail-account")
+    return saved === "all" ? null : saved
+  })
   const [messages, setMessages] = useState<MessageSummary[]>([])
   const [drafts, setDrafts] = useState<EmailDraft[]>([])
   const [mailPreferences, setMailPreferences] = useState<MailPreferences>(defaultMailPreferences)
@@ -40,6 +43,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const selectedIdRef = useRef<string | null>(null)
+  const listRequest = useRef<AbortController | null>(null)
   const deletingRef = useRef(false)
 
   const activeAccount = useMemo(
@@ -62,6 +66,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     const next = await api.accounts()
     setAccounts(next)
     setActiveAccountId((current) => {
+      if (!current && readStoredValue("meowmail-account") === "all") return null
       if (current && next.some((account) => account.id === current)) return current
       const fallback = next.find((account) => account.isDefault)?.id || next[0]?.id || null
       if (fallback) writeStoredValue("meowmail-account", fallback)
@@ -70,10 +75,13 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   }, [])
 
   const loadMessages = useCallback(async () => {
+    listRequest.current?.abort()
     if (filter === "drafts") {
       setLoading(false)
       return
     }
+    const request = new AbortController()
+    listRequest.current = request
     setLoading(true)
     try {
       const params = new URLSearchParams({ folder: filter === "sent" ? "Sent" : "INBOX", limit: "120" })
@@ -82,7 +90,8 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       if (filter === "starred") params.set("starred", "true")
       if (filter === "attachments") params.set("hasAttachment", "true")
       if (query) params.set("q", query)
-      const next = await api.messages(params)
+      const next = await api.messages(params, request.signal)
+      if (request.signal.aborted) return
       setMessages(next)
       setSelectedMessageIds((selected) => {
         if (!selected.size) return selected
@@ -98,11 +107,13 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
         setThread([])
       }
     } catch {
-      notify("genericError", undefined, "error")
+      if (!request.signal.aborted) notify("genericError", undefined, "error")
     } finally {
-      setLoading(false)
+      if (!request.signal.aborted) setLoading(false)
     }
   }, [activeAccountId, filter, notify, query])
+
+  const refreshMessages = useRef<typeof loadMessages | null>(null)
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -122,10 +133,11 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       const loadedThread = mailPreferences.conversationMode
         ? await api.messageThread(message.id)
         : [await api.message(message.id)]
-      const loaded = loadedThread.find((item) => item.id === message.id) || loadedThread.at(-1)
-      if (!loaded) throw new Error("message is missing")
       if (selectedIdRef.current !== message.id) return
-      setThread(loadedThread)
+      const selected = loadedThread.find((item) => item.id === message.id)
+      const loaded = selected ?? await api.message(message.id)
+      if (selectedIdRef.current !== message.id) return
+      setThread(selected ? loadedThread : [...loadedThread, loaded])
       setDetail(loaded)
       if (!loaded.isRead) {
         const updated = await api.updateMessage(loaded.id, { isRead: true })
@@ -134,7 +146,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
         setThread((items) => items.map((item) => item.id === updated.id ? { ...item, isRead: true } : item))
       }
     } catch {
-      notify("genericError", undefined, "error")
+      if (selectedIdRef.current === message.id) notify("genericError", undefined, "error")
     } finally {
       if (selectedIdRef.current === message.id) setDetailLoading(false)
     }
@@ -143,7 +155,14 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
   useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
   useEffect(() => { loadAccounts().catch(() => notify("genericError", undefined, "error")) }, [loadAccounts, notify])
   useEffect(() => { api.mailPreferences().then(setMailPreferences).catch(() => notify("genericError", undefined, "error")) }, [notify])
-  useEffect(() => { void loadMessages() }, [loadMessages])
+  useEffect(() => {
+    refreshMessages.current = loadMessages
+    void loadMessages()
+    return () => {
+      listRequest.current?.abort()
+      refreshMessages.current = null
+    }
+  }, [loadMessages])
   useEffect(() => { void loadDrafts() }, [loadDrafts])
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 250)
@@ -154,21 +173,30 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     function keyboard(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
       if (composeDraft !== undefined || settingsOpen || contactsOpen || accountManagerOpen || accountDialog !== undefined) return
-      if (event.defaultPrevented) return
+      if (event.defaultPrevented || activeView !== "mail" || sidebarOpen || document.querySelector("dialog[open]")) return
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         if (searchRef.current) {
           event.preventDefault()
-          searchRef.current.focus()
-          searchRef.current.select()
+          if (mobileView === "detail") {
+            setMobileView("list")
+            window.requestAnimationFrame(() => {
+              searchRef.current?.focus()
+              searchRef.current?.select()
+            })
+          } else {
+            searchRef.current.focus()
+            searchRef.current.select()
+          }
         }
         return
       }
+      if (event.metaKey || event.ctrlKey || event.altKey) return
       if (target?.closest("input, textarea, select, button, a, [contenteditable='true'], [role='tree'], [role='listbox'], [role='menu'], [role='tablist']")) return
       if (event.key.toLowerCase() === "c" && accounts.length) {
         event.preventDefault()
         setComposeDraft(null)
       }
-      if (["j", "k", "ArrowDown", "ArrowUp"].includes(event.key) && messages.length) {
+      if (["j", "k", "ArrowDown", "ArrowUp"].includes(event.key) && filter !== "drafts" && messages.length) {
         event.preventDefault()
         const direction = event.key === "j" || event.key === "ArrowDown" ? 1 : -1
         const currentIndex = messages.findIndex((message) => message.id === selectedIdRef.current)
@@ -179,13 +207,12 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
         if (next) void selectMessage(next)
       }
       if (event.key === "Escape") {
-        if (sidebarOpen) setSidebarOpen(false)
-        else if (mobileView === "detail") setMobileView("list")
+        if (mobileView === "detail") setMobileView("list")
       }
     }
     window.addEventListener("keydown", keyboard)
     return () => window.removeEventListener("keydown", keyboard)
-  }, [accountDialog, accountManagerOpen, accounts.length, composeDraft, contactsOpen, messages, mobileView, selectMessage, settingsOpen, sidebarOpen])
+  }, [accountDialog, accountManagerOpen, accounts.length, activeView, composeDraft, filter, contactsOpen, messages, mobileView, selectMessage, settingsOpen, sidebarOpen])
 
   const chooseAccount = useCallback((id: string | null) => {
     setActiveAccountId(id)
@@ -196,8 +223,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
     setSelectedMessageIds(new Set())
     setMobileView("list")
     setSidebarOpen(false)
-    if (id) writeStoredValue("meowmail-account", id)
-    else removeStoredValue("meowmail-account")
+    writeStoredValue("meowmail-account", id ?? "all")
   }, [])
 
   const chooseFilter = useCallback((next: MailFilter) => {
@@ -238,14 +264,14 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       const targets = activeAccount ? [activeAccount] : accounts
       const results = await Promise.all(targets.map((account) => api.syncAccount(account.id)))
       const count = results.reduce((total, result) => total + result.inserted, 0)
-      await Promise.all([loadAccounts(), loadMessages()])
+      await Promise.all([loadAccounts(), refreshMessages.current?.()])
       notify(count > 0 ? "refreshed" : "noNewMail", { count })
     } catch (error) {
       notify(error instanceof ApiError && error.status === 409 ? "mailboxBusy" : "genericError", undefined, "error")
     } finally {
       setSyncing(false)
     }
-  }, [accounts, activeAccount, loadAccounts, loadMessages, notify, syncing])
+  }, [accounts, activeAccount, loadAccounts, notify, syncing])
 
   const refreshAttachments = useCallback(async () => {
     if (!detail || refreshingAttachments || deletingRef.current) return
@@ -356,13 +382,13 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
       }
       notify("messagesDeletedSuccess", { count: deleted })
     } catch {
-      await loadMessages()
+      await refreshMessages.current?.()
       notify(deleted > 0 ? "messagesDeletePartial" : "genericError", { count: deleted }, "error")
     } finally {
       deletingRef.current = false
       setDeleting(false)
     }
-  }, [detail, loadMessages, notify, selectedMessageIds])
+  }, [detail, notify, selectedMessageIds])
 
   const openDraft = useCallback((draft: EmailDraft) => {
     setSidebarOpen(false)
@@ -423,7 +449,7 @@ export function useMailWorkspace({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   return {
     accounts, setAccounts, activeAccountId, activeAccount, messages, drafts, mailPreferences, setMailPreferences,
-    selectedId, selectedMessageIds, detail, thread, filter, search, setSearch, loading, detailLoading, syncing, refreshingAttachments, deleting,
+    selectedId, selectedMessageIds, detail, thread, filter, query, search, setSearch, loading, detailLoading, syncing, refreshingAttachments, deleting,
     draftBusyId, composeDraft, setComposeDraft, settingsOpen, setSettingsOpen, contactsOpen, setContactsOpen, accountManagerOpen, setAccountManagerOpen, accountDialog, setAccountDialog,
     mobileView, setMobileView, sidebarOpen, setSidebarOpen, searchRef, notify, loadAccounts, loadDrafts,
     chooseAccount, chooseFilter, selectMessage, toggleStar, toggleRead, sync, refreshAttachments, replyToMessage,

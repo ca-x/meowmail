@@ -2,24 +2,26 @@ import { AppShell } from "@astryxdesign/core/AppShell"
 import { Layout, LayoutContent, LayoutPanel } from "@astryxdesign/core/Layout"
 import { MobileNav } from "@astryxdesign/core/MobileNav"
 import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable"
-import { useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 
 import { api } from "../../app/api"
 import type { SessionResponse } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 import { AccountDialog } from "../accounts/AccountDialog"
 import { AccountManagerDialog } from "../accounts/AccountManagerDialog"
-import { CalendarWorkspace } from "../calendar/CalendarWorkspace"
 import { SettingsDialog } from "../settings/SettingsDialog"
 import type { SettingsTab } from "../settings/settingsTypes"
-import { ComposeDialog, type ComposeWorkspaceRef } from "./ComposeDialog"
+import type { ComposeWorkspaceRef } from "./ComposeDialog"
 import { ContactsDialog } from "./ContactsDialog"
 import { MessageDetail as DetailPane } from "./MessageDetail"
 import { MailNavigation } from "./workspace/MailNavigation"
-import { MailTopBar } from "./workspace/MailTopBar"
+import { MailSearchField, MailTopBar } from "./workspace/MailTopBar"
 import { MessageColumn } from "./workspace/MessageColumn"
 import { useMailWorkspace } from "./workspace/useMailWorkspace"
 import { useImperativeConfirmDialog } from "../../shared/ui/ImperativeConfirmDialog"
+
+const CalendarWorkspace = lazy(() => import("../calendar/CalendarWorkspace").then((module) => ({ default: module.CalendarWorkspace })))
+const ComposeDialog = lazy(() => import("./ComposeDialog").then((module) => ({ default: module.ComposeDialog })))
 
 export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut }: {
   session: SessionResponse
@@ -28,15 +30,19 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
   onLoggedOut: () => void
 }) {
   const { t } = useI18n()
-  const workspace = useMailWorkspace({ onLoggedOut })
+  const [activeView, setActiveView] = useState<"mail" | "calendar">(() => window.location.pathname.startsWith("/calendar") ? "calendar" : "mail")
+  const workspace = useMailWorkspace({ activeView, onLoggedOut })
   const deleteDraftDialog = useImperativeConfirmDialog()
   const composeRef = useRef<ComposeWorkspaceRef | null>(null)
   const composeTriggerRef = useRef<HTMLElement | null>(null)
   const viewportWidth = useViewportWidth()
-  const [activeView, setActiveView] = useState<"mail" | "calendar">(() => window.location.pathname.startsWith("/calendar") ? "calendar" : "mail")
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>("general")
   const [calendarRevision, setCalendarRevision] = useState(0)
   const isComposing = workspace.composeDraft !== undefined
+  const searchField = !isComposing && workspace.filter !== "drafts" && (
+    <MailSearchField value={workspace.search} inputRef={workspace.searchRef} onChange={workspace.setSearch} />
+  )
+  const loadingView = <div className="workspace-loading" role="status"><span className="spinner" aria-hidden="true" />{t("loading")}</div>
   const navigationMax = viewportWidth < 1_400 ? 260 : 320
   const detailMax = Math.max(440, Math.min(920, viewportWidth - navigationMax - 300))
   const navigationPanel = useResizable({
@@ -160,9 +166,7 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
         <MailTopBar
           session={session}
           activeView={activeView}
-          search={workspace.search}
-          searchRef={workspace.searchRef}
-          onSearchChange={workspace.setSearch}
+          searchField={viewportWidth > 768 && searchField}
           onOpenSettings={() => openSettings()}
           onLock={requestSessionLock}
           onLogout={() => void leaveCompose(() => void workspace.logout())}
@@ -214,38 +218,42 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
           content={
             activeView === "calendar" ? (
               <LayoutContent className="calendar-workspace-host" padding={0} isScrollable={false} label={t("calendarView")}>
-                <CalendarWorkspace
-                  revision={calendarRevision}
-                  drafts={workspace.drafts}
-                  onOpenDraft={(draft) => {
-                    rememberComposeTrigger()
-                    setActiveView("mail")
-                    window.history.pushState(null, "", "/mail/drafts")
-                    workspace.openDraft(draft)
-                  }}
-                  onOpenSettings={() => openSettings("calendar")}
-                />
+                <Suspense fallback={loadingView}>
+                  <CalendarWorkspace
+                    revision={calendarRevision}
+                    drafts={workspace.drafts}
+                    onOpenDraft={(draft) => {
+                      rememberComposeTrigger()
+                      setActiveView("mail")
+                      window.history.pushState(null, "", "/mail/drafts")
+                      workspace.openDraft(draft)
+                    }}
+                    onOpenSettings={() => openSettings("calendar")}
+                  />
+                </Suspense>
               </LayoutContent>
             ) : isComposing ? (
               <LayoutContent className="compose-workspace-host" padding={0} isScrollable={false} label={t("compose")}>
-                <ComposeDialog
-                  ref={composeRef}
-                  accounts={workspace.accounts}
-                  activeAccountId={workspace.activeAccountId}
-                  preferences={workspace.mailPreferences}
-                  aiEnabled={session.user.aiEnabled}
-                  draft={workspace.composeDraft ?? null}
-                  onClose={closeCompose}
-                  onSent={() => {
-                    closeCompose()
-                    void workspace.loadDrafts()
-                    workspace.notify("sentSuccess")
-                  }}
-                  onDraftSaved={(scheduled) => {
-                    void workspace.loadDrafts()
-                    workspace.notify(scheduled ? "scheduledDraftSaved" : "draftSaved")
-                  }}
-                />
+                <Suspense fallback={loadingView}>
+                  <ComposeDialog
+                    ref={composeRef}
+                    accounts={workspace.accounts}
+                    activeAccountId={workspace.activeAccountId}
+                    preferences={workspace.mailPreferences}
+                    aiEnabled={session.user.aiEnabled}
+                    draft={workspace.composeDraft ?? null}
+                    onClose={closeCompose}
+                    onSent={() => {
+                      closeCompose()
+                      void workspace.loadDrafts()
+                      workspace.notify("sentSuccess")
+                    }}
+                    onDraftSaved={(scheduled) => {
+                      void workspace.loadDrafts()
+                      workspace.notify(scheduled ? "scheduledDraftSaved" : "draftSaved")
+                    }}
+                  />
+                </Suspense>
               </LayoutContent>
             ) : (
               <LayoutContent className="mail-message-content" padding={0} isScrollable={false} label={t("inbox")}>
@@ -253,6 +261,12 @@ export function MailWorkspace({ session, onSessionChanged, onLocked, onLoggedOut
                   accounts={workspace.accounts}
                   activeAccount={workspace.activeAccount}
                   filter={workspace.filter}
+                  searchField={viewportWidth <= 768 && searchField}
+                  query={workspace.query}
+                  onClearSearch={() => {
+                    workspace.setSearch("")
+                    workspace.searchRef.current?.focus()
+                  }}
                   messages={workspace.messages}
                   drafts={workspace.drafts}
                   selectedId={workspace.selectedId}

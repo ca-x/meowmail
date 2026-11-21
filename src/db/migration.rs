@@ -20,7 +20,34 @@ impl MigratorTrait for Migrator {
             Box::new(DraftEditorDocumentMigration),
             Box::new(LocalCalendarEventsMigration),
             Box::new(SessionAutoLockMigration),
+            Box::new(MailboxTimelineMigration),
         ]
+    }
+}
+
+struct MailboxTimelineMigration;
+
+impl MigrationName for MailboxTimelineMigration {
+    fn name(&self) -> &str {
+        "m20261122_000015_mailbox_timeline"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for MailboxTimelineMigration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager.get_connection().execute_unprepared(
+            "CREATE INDEX IF NOT EXISTS idx_messages_user_folder_time ON messages(user_id, folder, received_at)",
+        ).await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared("DROP INDEX IF EXISTS idx_messages_user_folder_time")
+            .await?;
+        Ok(())
     }
 }
 

@@ -31,6 +31,7 @@ export function ContactsDialog({ isOpen, onClose }: {
   const formRevision = useRef(0)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [query, setQuery] = useState("")
+  const [revision, setRevision] = useState(0)
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const filtered = useMemo(() => contacts.filter((contact) => {
@@ -38,31 +39,28 @@ export function ContactsDialog({ isOpen, onClose }: {
     return haystack.includes(query.trim().toLowerCase())
   }), [contacts, query])
 
-  async function loadContacts(search = query) {
-    setLoading(true)
-    try {
+  useEffect(() => {
+    if (!isOpen) return
+    const controller = new AbortController()
+    const search = query.trim()
+    const timer = window.setTimeout(async () => {
+      setLoading(true)
       const params = new URLSearchParams({ limit: "100" })
-      if (search.trim()) params.set("q", search.trim())
-      setContacts(await api.contacts(params))
-    } catch {
-      showToast({ body: t("genericError"), type: "error", uniqueID: "contacts-load-error", collisionBehavior: "overwrite" })
-    } finally {
-      setLoading(false)
+      if (search) params.set("q", search)
+      try {
+        const next = await api.contacts(params, controller.signal)
+        if (!controller.signal.aborted) setContacts(next)
+      } catch {
+        if (!controller.signal.aborted) showToast({ body: t("genericError"), type: "error", uniqueID: "contacts-load-error", collisionBehavior: "overwrite" })
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }, search ? 220 : 0)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
     }
-  }
-
-  useEffect(() => {
-    if (!isOpen) return
-    void loadContacts("")
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen])
-
-  useEffect(() => {
-    if (!isOpen) return
-    const timer = window.setTimeout(() => void loadContacts(query), 220)
-    return () => window.clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, isOpen])
+  }, [isOpen, query, revision, showToast, t])
 
   const openForm = (contact: Contact | null) => {
     formRevision.current += 1
@@ -76,7 +74,7 @@ export function ContactsDialog({ isOpen, onClose }: {
             if (contact) await api.updateContact(contact.id, input)
             else await api.createContact(input)
             formDialog.hide()
-            await loadContacts(query)
+            setRevision((current) => current + 1)
             showToast({ body: t(contact ? "contactUpdated" : "contactCreated"), type: "info", uniqueID: "contact-saved", collisionBehavior: "overwrite" })
           } catch {
             showToast({ body: t("contactInvalid"), type: "error", uniqueID: "contact-save-error", collisionBehavior: "overwrite" })
@@ -100,6 +98,7 @@ export function ContactsDialog({ isOpen, onClose }: {
     try {
       await api.deleteContact(contact.id)
       setContacts((items) => items.filter((item) => item.id !== contact.id))
+      setRevision((current) => current + 1)
       showToast({ body: t("contactDeleted"), type: "info", uniqueID: "contact-deleted", collisionBehavior: "overwrite" })
     } catch {
       showToast({ body: t("genericError"), type: "error", uniqueID: "contact-delete-error", collisionBehavior: "overwrite" })
@@ -120,7 +119,7 @@ export function ContactsDialog({ isOpen, onClose }: {
         padding={0}
         aria-label={t("contacts")}
       >
-        <Layout
+        {isOpen && <Layout
           className="contacts-dialog-layout"
           height="fill"
           padding={4}
@@ -177,7 +176,7 @@ export function ContactsDialog({ isOpen, onClose }: {
                     icon={<ContactRound aria-hidden="true" />}
                     title={query.trim() ? t("noContactsFound") : t("noContacts")}
                     description={query.trim() ? t("noContactsFoundDescription") : t("noContactsDescription")}
-                    actions={!query.trim() && <Button label={t("newContact")} icon={<UserRoundPlus aria-hidden="true" />} variant="primary" onClick={() => openForm(null)} />}
+                    actions={query.trim() ? <Button label={t("clearMailSearch")} variant="secondary" onClick={() => setQuery("")} /> : <Button label={t("newContact")} icon={<UserRoundPlus aria-hidden="true" />} variant="primary" onClick={() => openForm(null)} />}
                   />
                 </div>
               )}
@@ -189,7 +188,7 @@ export function ContactsDialog({ isOpen, onClose }: {
               <Button label={t("done")} variant="secondary" onClick={onClose} />
             </LayoutFooter>
           }
-        />
+        />}
       </Dialog>
       {formDialog.element}
       {deleteDialog.element}

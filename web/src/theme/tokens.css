@@ -5,16 +5,16 @@
   --font-mono: var(--font-family-code);
   --bg-canvas: var(--color-background-body);
   --bg-surface: var(--color-background-surface);
-  --bg-elevated: light-dark(rgba(255, 255, 255, 0.82), rgba(26, 32, 43, 0.84));
-  --bg-sidebar: light-dark(rgba(246, 247, 249, 0.88), rgba(20, 25, 34, 0.9));
+  --bg-elevated: color-mix(in srgb, var(--bg-surface) 96%, transparent);
+  --bg-sidebar: color-mix(in srgb, var(--bg-muted) 55%, var(--bg-surface));
   --bg-muted: var(--color-background-muted);
   --bg-subtle: var(--color-background-body);
   --bg-hover: var(--color-overlay-hover);
   --bg-pressed: var(--color-overlay-pressed);
   --bg-selected: var(--color-accent-muted);
   --text-primary: var(--color-text-primary);
-  --text-secondary: color-mix(in srgb, var(--color-text-primary) 72%, var(--color-text-secondary));
-  --text-tertiary: color-mix(in srgb, var(--color-text-primary) 56%, var(--color-text-secondary));
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: color-mix(in srgb, var(--color-text-primary) 74%, var(--bg-surface));
   --text-disabled: var(--color-text-disabled);
   --text-on-accent: var(--color-on-accent);
   --border: var(--color-border);
@@ -28,6 +28,9 @@
   --star: var(--color-warning);
   --shadow-color: var(--color-shadow);
   --shadow-medium: var(--shadow-med);
+  --shadow-panel: 0 1px 2px var(--shadow-color), 0 4px 12px -8px var(--shadow-color);
+  --shadow-dialog: 0 4px 10px -4px var(--shadow-color), 0 24px 64px -12px light-dark(rgb(20 24 32 / 24%), rgb(0 0 0 / 64%));
+  --pane-gutter: 16px;
   --radius-small: var(--radius-element);
   --radius-control: var(--radius-element);
   --radius-card: var(--radius-container);
@@ -77,16 +80,16 @@
 
 :root[data-astryx-theme],
 [data-astryx-theme] {
-  --color-text-secondary: color-mix(in srgb, var(--color-text-primary) 86%, var(--color-background-surface));
-  --color-icon-secondary: color-mix(in srgb, var(--color-text-primary) 86%, var(--color-background-surface));
+  --color-text-secondary: color-mix(in srgb, var(--color-text-primary) 78%, var(--color-background-surface));
+  --color-icon-secondary: color-mix(in srgb, var(--color-text-primary) 78%, var(--color-background-surface));
   --color-text-disabled: color-mix(in srgb, var(--color-text-primary) 52%, var(--color-background-surface));
   --color-icon-disabled: color-mix(in srgb, var(--color-text-primary) 52%, var(--color-background-surface));
 }
 
 :root[data-astryx-theme][data-theme="dark"],
 [data-astryx-theme][data-theme="dark"] {
-  --color-text-secondary: color-mix(in srgb, var(--color-text-primary) 84%, var(--color-background-surface));
-  --color-icon-secondary: color-mix(in srgb, var(--color-text-primary) 84%, var(--color-background-surface));
+  --color-text-secondary: color-mix(in srgb, var(--color-text-primary) 80%, var(--color-background-surface));
+  --color-icon-secondary: color-mix(in srgb, var(--color-text-primary) 80%, var(--color-background-surface));
   --color-text-disabled: color-mix(in srgb, var(--color-text-primary) 44%, var(--color-background-surface));
   --color-icon-disabled: color-mix(in srgb, var(--color-text-primary) 44%, var(--color-background-surface));
 }

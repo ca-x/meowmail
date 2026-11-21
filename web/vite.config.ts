@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react"
 import { fileViewerRenderers } from "@file-viewer/vite-plugin"
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), fileViewerRenderers({ copyAssets: mode === "test" ? false : true })],
+  plugins: [react(), fileViewerRenderers({ copyAssets: mode !== "test", inject: false, chunkStrategy: "none" })],
   server: {
     host: "0.0.0.0",
     port: 5173,

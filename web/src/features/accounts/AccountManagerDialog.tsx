@@ -47,7 +47,7 @@ export function AccountManagerDialog({ isOpen, accounts, onClose, onChanged, onN
         padding={0}
         aria-label={t("manageAccounts")}
       >
-        <Layout
+        {isOpen && <Layout
           className="account-manager-layout"
           height="fill"
           padding={4}
@@ -94,7 +94,7 @@ export function AccountManagerDialog({ isOpen, accounts, onClose, onChanged, onN
               <Button label={t("done")} variant="primary" onClick={onClose} />
             </LayoutFooter>
           }
-        />
+        />}
       </Dialog>
 
       <AccountDialog

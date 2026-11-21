@@ -105,7 +105,7 @@ export function CalendarWorkspace({ revision, drafts, onOpenDraft, onOpenSetting
     let active = true
     setMonthLoading(true)
     const startDate = toISODate(visibleRange.start)
-    const inclusiveEnd = new Date(visibleRange.end.getTime() - 86_400_000)
+    const inclusiveEnd = new Date(visibleRange.end.getTime() - 1)
     const endDate = toISODate(inclusiveEnd)
     const start = Math.floor(visibleRange.start.getTime() / 1000)
     const end = Math.floor(visibleRange.end.getTime() / 1000)
@@ -294,10 +294,15 @@ export function CalendarWorkspace({ revision, drafts, onOpenDraft, onOpenSetting
     }
   }
 
+  function selectDay(date: string) {
+    setSelectedDate(date)
+    setEditor(null)
+  }
+
   function goToday() {
     const date = new Date()
     calendarRef.current?.getApi().today()
-    setSelectedDate(toISODate(date))
+    selectDay(toISODate(date))
   }
 
   return (
@@ -336,10 +341,9 @@ export function CalendarWorkspace({ revision, drafts, onOpenDraft, onOpenSetting
               height="100%"
               events={fullCalendarEvents}
               datesSet={handleDatesSet}
-              dateClick={(value) => {
-                setSelectedDate(value.dateStr)
-                setEditor(null)
-              }}
+              navLinks
+              navLinkDayClick={(date) => selectDay(toISODate(date))}
+              dateClick={(value) => selectDay(value.dateStr)}
               eventClick={handleEventClick}
               dayCellClassNames={(value) => toISODate(value.date) === selectedDate ? ["is-selected-date"] : []}
               dayCellContent={(value) => <CalendarDayCell value={value} info={infoByDate.get(toISODate(value.date))} preferences={preferences} />}
@@ -356,7 +360,7 @@ export function CalendarWorkspace({ revision, drafts, onOpenDraft, onOpenSetting
         <aside className="calendar-day-panel" aria-label={t("calendarDetails")}>
           <header className="calendar-day-header">
             <div>
-              <strong>{selectedLabel}</strong>
+              <strong aria-live="polite">{selectedLabel}</strong>
               <small>{t("calendarAgendaDescription")}</small>
             </div>
             <Badge variant="blue" label={t("calendarEvents", { count: selectedEvents.length })} />
@@ -398,7 +402,7 @@ export function CalendarWorkspace({ revision, drafts, onOpenDraft, onOpenSetting
                 <strong>{editor.id ? t("editCalendarEvent") : t("addCalendarEvent")}</strong>
                 <Badge variant="neutral" label={t("localCalendarEvent")} />
               </header>
-              <TextInput label={t("calendarEventTitle")} value={editor.summary} onChange={(summary) => setEditor({ ...editor, summary })} placeholder={t("calendarEventTitlePlaceholder")} width="100%" />
+              <TextInput hasAutoFocus label={t("calendarEventTitle")} value={editor.summary} onChange={(summary) => setEditor({ ...editor, summary })} placeholder={t("calendarEventTitlePlaceholder")} width="100%" />
               <div className="calendar-event-time-grid">
                 <DateTimeInput label={t("calendarEventStarts")} value={editor.startsAt} onChange={(startsAt) => startsAt && setEditor({ ...editor, startsAt })} hourFormat="24h" timeIncrement={5} width="100%" />
                 <DateTimeInput label={t("calendarEventEnds")} value={editor.endsAt} onChange={(endsAt) => endsAt && setEditor({ ...editor, endsAt })} min={editor.startsAt} hourFormat="24h" timeIncrement={5} width="100%" />

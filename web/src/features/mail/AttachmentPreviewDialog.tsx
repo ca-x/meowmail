@@ -32,7 +32,7 @@ export function AttachmentPreviewDialog({ isOpen = true, messageId, attachment, 
     let destroy: (() => void) | undefined
     setLoading(true)
     setFailed(false)
-    void import("@file-viewer/web-full")
+    void import("./attachmentViewer")
       .then(({ mountViewer }) => {
         if (!active || !viewerRef.current) return
         const controller = mountViewer(viewerRef.current, {
@@ -74,7 +74,7 @@ export function AttachmentPreviewDialog({ isOpen = true, messageId, attachment, 
       padding={0}
       aria-label={filename}
     >
-      <Layout
+      {isOpen && <Layout
         height="fill"
         padding={4}
         header={
@@ -102,7 +102,7 @@ export function AttachmentPreviewDialog({ isOpen = true, messageId, attachment, 
             )}
           </LayoutContent>
         }
-      />
+      />}
     </Dialog>
   )
 }

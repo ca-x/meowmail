@@ -6,15 +6,17 @@ import { IconButton } from "@astryxdesign/core/IconButton"
 import { Item } from "@astryxdesign/core/Item"
 import { List } from "@astryxdesign/core/List"
 import { Skeleton } from "@astryxdesign/core/Skeleton"
-import { ChevronDown, ChevronRight, Inbox, Megaphone, MessagesSquare, Paperclip, Star } from "lucide-react"
+import { ChevronDown, ChevronRight, Inbox, Megaphone, MessagesSquare, Paperclip, Search, Star } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { defaultMailPreferences } from "../../app/mailPreferences"
 import type { MailPreferences, MessageSummary } from "../../app/types"
 import { useI18n } from "../../i18n/I18nProvider"
 
-export function MessageList({ messages, selectedId, selectedIds = new Set(), loading, preferences = defaultMailPreferences, selectionDisabled = false, onSelect, onToggleStar, onToggleSelection }: {
+export function MessageList({ messages, query = "", onClearSearch, selectedId, selectedIds = new Set(), loading, preferences = defaultMailPreferences, selectionDisabled = false, onSelect, onToggleStar, onToggleSelection }: {
   messages: MessageSummary[]
+  query?: string
+  onClearSearch?: () => void
   selectedId: string | null
   selectedIds?: Set<string>
   loading: boolean
@@ -25,6 +27,11 @@ export function MessageList({ messages, selectedId, selectedIds = new Set(), loa
   onToggleSelection?: (id: string, selected?: boolean) => void
 }) {
   const { locale, t } = useI18n()
+  const formatters = useMemo(() => ({
+    relative: new Intl.RelativeTimeFormat(locale, { numeric: "auto" }),
+    date: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }),
+    size: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }),
+  }), [locale])
   const [promotionsExpanded, setPromotionsExpanded] = useState(false)
   const promotional = useMemo(() => messages.filter((message) => message.isPromotional), [messages])
   const visibleMessages = useMemo(
@@ -44,9 +51,10 @@ export function MessageList({ messages, selectedId, selectedIds = new Set(), loa
       <div className="message-list-empty">
         <EmptyState
           isCompact
-          icon={<Inbox aria-hidden="true" />}
-          title={t("noMail")}
-          description={t("noMailDescription")}
+          icon={query ? <Search aria-hidden="true" /> : <Inbox aria-hidden="true" />}
+          title={query ? t("noSearchResults") : t("noMail")}
+          description={query ? t("noSearchResultsDescription", { query }) : t("noMailDescription")}
+          actions={query && onClearSearch ? <Button label={t("clearMailSearch")} variant="secondary" onClick={onClearSearch} /> : undefined}
         />
       </div>
     )
@@ -113,7 +121,7 @@ export function MessageList({ messages, selectedId, selectedIds = new Set(), loa
               label={
                 <span className="message-item-heading">
                   <strong>{message.senderName || message.senderEmail}</strong>
-                  <time dateTime={new Date(message.receivedAt * 1000).toISOString()}>{relativeTime(message.receivedAt, locale)}</time>
+                  <time dateTime={new Date(message.receivedAt * 1000).toISOString()}>{relativeTime(message.receivedAt, formatters.relative, formatters.date)}</time>
                 </span>
               }
               description={
@@ -126,7 +134,7 @@ export function MessageList({ messages, selectedId, selectedIds = new Set(), loa
                   {preferences.showSummary && <span className="message-item-preview">{message.preview}</span>}
                   {(preferences.showMessageSize || (preferences.showAttachmentPreview && message.attachmentCount > 0)) && (
                     <span className="message-item-meta">
-                      {preferences.showMessageSize && <span>{formatFileSize(message.rawSize, locale)}</span>}
+                      {preferences.showMessageSize && <span>{formatFileSize(message.rawSize, formatters.size)}</span>}
                       {preferences.showAttachmentPreview && message.attachmentCount > 0 && <span><Paperclip aria-hidden="true" />{t("attachmentCount", { count: message.attachmentCount })}</span>}
                     </span>
                   )}
@@ -135,6 +143,7 @@ export function MessageList({ messages, selectedId, selectedIds = new Set(), loa
               endContent={
                 <IconButton
                   className={`message-item-star ${message.isStarred ? "is-starred" : ""}`}
+                  aria-pressed={message.isStarred}
                   label={message.isStarred ? t("unstar") : t("star")}
                   icon={<Star fill={message.isStarred ? "currentColor" : "none"} aria-hidden="true" />}
                   variant="ghost"
@@ -175,7 +184,7 @@ function groupMessages(messages: MessageSummary[], enabled: boolean) {
   if (!enabled) return messages.map((message) => ({ message, count: 1 }))
   const groups = new Map<string, { message: MessageSummary; count: number }>()
   for (const message of messages) {
-    const key = `${message.accountId}:${message.threadKey}`
+    const key = message.threadKey ? `${message.accountId}:${message.threadKey}` : message.id
     const current = groups.get(key)
     if (current) current.count += 1
     else groups.set(key, { message, count: 1 })
@@ -183,7 +192,7 @@ function groupMessages(messages: MessageSummary[], enabled: boolean) {
   return [...groups.values()]
 }
 
-function formatFileSize(size: number, locale: string) {
+function formatFileSize(size: number, formatter: Intl.NumberFormat) {
   const units = ["B", "KB", "MB", "GB"]
   let value = Math.max(0, size)
   let unit = 0
@@ -191,17 +200,16 @@ function formatFileSize(size: number, locale: string) {
     value /= 1024
     unit += 1
   }
-  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: unit ? 1 : 0 }).format(value)} ${units[unit]}`
+  return `${formatter.format(value)} ${units[unit]}`
 }
 
-function relativeTime(timestamp: number, locale: string) {
+function relativeTime(timestamp: number, formatter: Intl.RelativeTimeFormat, dateFormat: Intl.DateTimeFormat) {
   const difference = timestamp * 1000 - Date.now()
   const minute = 60_000
   const hour = 60 * minute
   const day = 24 * hour
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" })
   if (Math.abs(difference) < hour) return formatter.format(Math.round(difference / minute), "minute")
   if (Math.abs(difference) < day) return formatter.format(Math.round(difference / hour), "hour")
   if (Math.abs(difference) < 7 * day) return formatter.format(Math.round(difference / day), "day")
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(timestamp * 1000))
+  return dateFormat.format(timestamp * 1000)
 }
